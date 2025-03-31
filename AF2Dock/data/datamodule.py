@@ -103,13 +103,13 @@ class SingleDataset(torch.utils.data.Dataset):
         rot_0 = rot_angle * rot_axis
         return tr_0, rot_0
     
-    def apply_rigid_body_noise(self, all_atom_positions, all_atom_mask, tr_t, rot_t):
+    def apply_rigid_body_noise(self, all_atom_positions, all_atom_mask, tr, rot):
         ca_idx = residue_constants.atom_order["CA"]
         com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
-        rot_t_mat = R.from_rotvec(rot_t).as_matrix()
+        rot_t_mat = R.from_rotvec(rot).as_matrix()
         all_atom_positions = all_atom_positions - com
-        all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat) # am i wrong here because all chatbots tell me that I should use ij,jk->ik instead???
-        all_atom_positions = all_atom_positions + com + tr_t
+        all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat)
+        all_atom_positions = all_atom_positions + com + tr
         all_atom_positions = all_atom_positions * all_atom_mask
         return all_atom_positions
     
@@ -127,7 +127,7 @@ class SingleDataset(torch.utils.data.Dataset):
             all_atom_positions_dict = {}
             all_atom_mask_dict = {}
             seq_dict = {}
-            struct_feats_at_t = {}
+            struct_feats_at_t_dict = {}
             esm_embedding_dict = {}
             
             for part in ['rec', 'lig']:
@@ -183,16 +183,15 @@ class SingleDataset(torch.utils.data.Dataset):
                 all_atom_mask_dict[part] = part_all_atom_mask
                 seq_dict[part] = part_seq
                 esm_embedding_dict[part] = part_esm_embedding
-                struct_feats_at_t[part] = part_feats_at_t
+                struct_feats_at_t_dict[part] = part_feats_at_t
 
             fasta_str = f">rec\n{seq_dict['rec']}\n>lig\n{seq_dict['lig']}\n"
-            cat_esm_embedding = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0)
 
             data = self.data_pipeline.process_fasta_with_atom_pos(
                 input_fasta_str=fasta_str,
                 all_atom_positions_dict=all_atom_positions_dict,
                 all_atom_mask_dict=all_atom_mask_dict,
-                struct_feats_at_t=struct_feats_at_t,
+                struct_feats_at_t_dict=struct_feats_at_t_dict,
             )
 
         else:
@@ -209,7 +208,7 @@ class SingleDataset(torch.utils.data.Dataset):
             dtype=torch.int64,
             device=data["aatype"].device)
         
-        data["esm_embedding"] = cat_esm_embedding
+        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0)
         if self.mode == 'train' or self.mode == 'eval':
             data["t"] = t
             data["tr_0"] = tr_0
@@ -218,7 +217,7 @@ class SingleDataset(torch.utils.data.Dataset):
         return data
 
     def __len__(self):
-        return len(self._mmcifs)
+        return len(self.data_index)
 
 # class OpenFoldMultimerDataset(data_modules.OpenFoldDataset):
 #     """

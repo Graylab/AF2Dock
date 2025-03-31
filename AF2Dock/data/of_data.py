@@ -214,22 +214,16 @@ class DataPipelineMultimer:
 
     def process_fasta(self,
                       input_fasta_str: str,
+                      struct_feats_at_t_dict,
                       ) -> FeatureDict:
         """Creates features."""
 
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        sequence_features = {}
         is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
-            if seq in sequence_features:
-                all_chain_features[desc] = copy.deepcopy(
-                    sequence_features[seq]
-                )
-                continue
-
             chain_features = self._process_single_chain(
                 chain_id=desc,
                 sequence=seq,
@@ -237,12 +231,13 @@ class DataPipelineMultimer:
                 is_homomer_or_monomer=is_homomer_or_monomer
             )
 
+            chain_features.update(struct_feats_at_t_dict[desc])
+
             chain_features = data_pipeline.convert_monomer_features(
                 chain_features,
                 chain_id=desc
             )
             all_chain_features[desc] = chain_features
-            sequence_features[seq] = chain_features
 
         all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
 
@@ -258,20 +253,14 @@ class DataPipelineMultimer:
             input_fasta_str: str,
             all_atom_positions_dict,
             all_atom_mask_dict,
+            struct_feats_at_t_dict,
     ) -> FeatureDict:
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        sequence_features = {}
         is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
-            if seq in sequence_features:
-                all_chain_features[desc] = copy.deepcopy(
-                    sequence_features[seq]
-                )
-                continue
-
             chain_features = self._process_single_chain(
                 chain_id=desc,
                 sequence=seq,
@@ -279,17 +268,17 @@ class DataPipelineMultimer:
                 is_homomer_or_monomer=is_homomer_or_monomer
             )
 
+            chain_features.update(struct_feats_at_t_dict[desc])
+
             chain_features = data_pipeline.convert_monomer_features(
                 chain_features,
                 chain_id=desc
             )
 
+            chain_features["all_atom_positions"] = all_atom_positions_dict[desc]
+            chain_features["all_atom_mask"] = all_atom_mask_dict[desc]
+
             all_chain_features[desc] = chain_features
-            sequence_features[seq] = chain_features
-        
-        for desc, seq in zip(input_descs, input_seqs):
-            all_chain_features[desc]["all_atom_positions"] = all_atom_positions_dict[desc]
-            all_chain_features[desc]["all_atom_mask"] = all_atom_mask_dict[desc]
 
         all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
 
