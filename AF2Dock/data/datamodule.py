@@ -17,9 +17,9 @@ from AF2Dock.data import of_data
 
 class AF2DockDataset(torch.utils.data.Dataset):
     def __init__(self,
-                 cached_esm_embedding_folder,
                  config: mlc.ConfigDict,
                  mode: str = "train",
+                 cached_esm_embedding_folder: str = None,
                  ):
         """
         This class check each individual PDB ID and return its chain(s) features/ground truth 
@@ -32,7 +32,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
         super(AF2DockDataset, self).__init__()
 
         self.config = config
-        self.cached_esm_embedding_folder = Path(cached_esm_embedding_folder)
+        if cached_esm_embedding_folder is not None:
+            self.cached_esm_embedding_folder = Path(cached_esm_embedding_folder)
+        else:
+            if self.mode == "train" or self.mode == "eval":
+                raise ValueError("cached_esm_embedding_folder must be provided for train and eval modes")
+            self.cached_esm_embedding_folder = None
         self.mode = mode
 
         valid_modes = ["train", "eval", "predict"]
@@ -205,11 +210,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
             dtype=torch.int64,
             device=data["aatype"].device)
         
-        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0)
+        # Unsqueeze for recycle dimension (1)
+        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0).unsqueeze(0)
         if self.mode == 'train' or self.mode == 'eval':
-            data["t"] = t
-            data["tr_0"] = tr_0
-            data["rot_0"] = rot_0
+            data["t"] = t.unsqueeze(0)
+            data["tr_0"] = tr_0.unsqueeze(0)
+            data["rot_0"] = rot_0.unsqueeze(0)
         
         return data
 
@@ -218,9 +224,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
 class AF2DockDataModule(pl.LightningDataModule):
     def __init__(self, config: mlc.ConfigDict,
-                 cached_esm_embedding_folder,
                  training_mode,
                  batch_seed,
+                 cached_esm_embedding_folder: str = None,
                  **kwargs):
         super().__init__()
 
