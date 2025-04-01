@@ -1,4 +1,18 @@
-import re
+# Copyright 2021 AlQuraishi Laboratory
+# Copyright 2021 DeepMind Technologies Limited
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 import importlib
 import ml_collections as mlc
@@ -22,10 +36,10 @@ def enforce_config_constraints(config):
         return setting
 
     mutually_exclusive_bools = [
-        (
-            "model.template.average_templates", 
-            "model.template.offload_templates"
-        ),
+        # (
+        #     "model.template.average_templates", 
+        #     "model.template.offload_templates"
+        # ),
         (
             "globals.use_lma",
             "globals.use_flash",
@@ -51,11 +65,11 @@ def enforce_config_constraints(config):
             "and that the deepspeed.ops.deepspeed4science package exists"
         )
 
-    if(
-        config.globals.offload_inference and 
-        not config.model.template.average_templates
-    ):
-        config.model.template.offload_templates = True
+    # if(
+    #     config.globals.offload_inference and 
+    #     not config.model.template.average_templates
+    # ):
+    #     config.model.template.offload_templates = True
 
 
 def model_config(
@@ -67,165 +81,165 @@ def model_config(
 ):
     c = copy.deepcopy(config)
     # TRAINING PRESETS
-    if name == "initial_training":
-        # AF2 Suppl. Table 4, "initial training" setting
-        pass
-    elif name == "finetuning":
-        # AF2 Suppl. Table 4, "finetuning" setting
-        c.data.train.crop_size = 384
-        c.data.train.max_extra_msa = 5120
-        c.data.train.max_msa_clusters = 512
-        c.loss.violation.weight = 1.
-        c.loss.experimentally_resolved.weight = 0.01
-    elif name == "finetuning_ptm":
-        c.data.train.max_extra_msa = 5120
-        c.data.train.crop_size = 384
-        c.data.train.max_msa_clusters = 512
-        c.loss.violation.weight = 1.
-        c.loss.experimentally_resolved.weight = 0.01
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "finetuning_no_templ":
-        # AF2 Suppl. Table 4, "finetuning" setting
-        c.data.train.crop_size = 384
-        c.data.train.max_extra_msa = 5120
-        c.data.train.max_msa_clusters = 512
-        c.model.template.enabled = False
-        c.loss.violation.weight = 1.
-        c.loss.experimentally_resolved.weight = 0.01
-    elif name == "finetuning_no_templ_ptm":
-        # AF2 Suppl. Table 4, "finetuning" setting
-        c.data.train.crop_size = 384
-        c.data.train.max_extra_msa = 5120
-        c.data.train.max_msa_clusters = 512
-        c.model.template.enabled = False
-        c.loss.violation.weight = 1.
-        c.loss.experimentally_resolved.weight = 0.01
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    # INFERENCE PRESETS
-    elif name == "model_1":
-        # AF2 Suppl. Table 5, Model 1.1.1
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-    elif name == "model_2":
-        # AF2 Suppl. Table 5, Model 1.1.2
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-    elif name == "model_3":
-        # AF2 Suppl. Table 5, Model 1.2.1
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120
-        c.model.template.enabled = False
-    elif name == "model_4":
-        # AF2 Suppl. Table 5, Model 1.2.2
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120
-        c.model.template.enabled = False
-    elif name == "model_5":
-        # AF2 Suppl. Table 5, Model 1.2.3
-        c.model.template.enabled = False
-    elif name == "model_1_ptm":
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120 
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_2_ptm":
-        c.data.common.reduce_max_clusters_by_max_templates = True
-        c.data.common.use_templates = True
-        c.data.common.use_template_torsion_angles = True
-        c.model.template.enabled = True
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_3_ptm":
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_4_ptm":
-        c.data.train.max_extra_msa = 5120
-        c.data.predict.max_extra_msa = 5120
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name == "model_5_ptm":
-        c.model.template.enabled = False
-        c.model.heads.tm.enabled = True
-        c.loss.tm.weight = 0.1
-    elif name.startswith("seq"):  # SINGLE SEQUENCE EMBEDDING PRESETS
-        c.update(seq_mode_config.copy_and_resolve_references())
-        if name == "seqemb_initial_training":
-            c.data.train.max_msa_clusters = 1
-            c.data.eval.max_msa_clusters = 1
-            c.data.train.block_delete_msa = False
-            c.data.train.max_distillation_msa_clusters = 1
-        elif name == "seqemb_finetuning":
-            c.data.train.max_msa_clusters = 1
-            c.data.eval.max_msa_clusters = 1
-            c.data.train.block_delete_msa = False
-            c.data.train.max_distillation_msa_clusters = 1
-            c.data.train.crop_size = 384
-            c.loss.violation.weight = 1.
-            c.loss.experimentally_resolved.weight = 0.01
-        elif name == "seq_model_esm1b":
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-            c.data.predict.max_msa_clusters = 1
-        elif name == "seq_model_esm1b_ptm":
-            c.data.common.use_templates = True
-            c.data.common.use_template_torsion_angles = True
-            c.model.template.enabled = True
-            c.data.predict.max_msa_clusters = 1
-            c.model.heads.tm.enabled = True
-            c.loss.tm.weight = 0.1
-    elif "multimer" in name:  # MULTIMER PRESETS
-        c.update(multimer_config_update.copy_and_resolve_references())
+    # if name == "initial_training":
+    #     # AF2 Suppl. Table 4, "initial training" setting
+    #     pass
+    # elif name == "finetuning":
+    #     # AF2 Suppl. Table 4, "finetuning" setting
+    #     c.data.train.crop_size = 384
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.train.max_msa_clusters = 512
+    #     c.loss.violation.weight = 1.
+    #     c.loss.experimentally_resolved.weight = 0.01
+    # elif name == "finetuning_ptm":
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.train.crop_size = 384
+    #     c.data.train.max_msa_clusters = 512
+    #     c.loss.violation.weight = 1.
+    #     c.loss.experimentally_resolved.weight = 0.01
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name == "finetuning_no_templ":
+    #     # AF2 Suppl. Table 4, "finetuning" setting
+    #     c.data.train.crop_size = 384
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.train.max_msa_clusters = 512
+    #     c.model.template.enabled = False
+    #     c.loss.violation.weight = 1.
+    #     c.loss.experimentally_resolved.weight = 0.01
+    # elif name == "finetuning_no_templ_ptm":
+    #     # AF2 Suppl. Table 4, "finetuning" setting
+    #     c.data.train.crop_size = 384
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.train.max_msa_clusters = 512
+    #     c.model.template.enabled = False
+    #     c.loss.violation.weight = 1.
+    #     c.loss.experimentally_resolved.weight = 0.01
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # # INFERENCE PRESETS
+    # elif name == "model_1":
+    #     # AF2 Suppl. Table 5, Model 1.1.1
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120
+    #     c.data.common.reduce_max_clusters_by_max_templates = True
+    #     c.data.common.use_templates = True
+    #     c.data.common.use_template_torsion_angles = True
+    #     c.model.template.enabled = True
+    # elif name == "model_2":
+    #     # AF2 Suppl. Table 5, Model 1.1.2
+    #     c.data.common.reduce_max_clusters_by_max_templates = True
+    #     c.data.common.use_templates = True
+    #     c.data.common.use_template_torsion_angles = True
+    #     c.model.template.enabled = True
+    # elif name == "model_3":
+    #     # AF2 Suppl. Table 5, Model 1.2.1
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120
+    #     c.model.template.enabled = False
+    # elif name == "model_4":
+    #     # AF2 Suppl. Table 5, Model 1.2.2
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120
+    #     c.model.template.enabled = False
+    # elif name == "model_5":
+    #     # AF2 Suppl. Table 5, Model 1.2.3
+    #     c.model.template.enabled = False
+    # elif name == "model_1_ptm":
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120 
+    #     c.data.common.reduce_max_clusters_by_max_templates = True
+    #     c.data.common.use_templates = True
+    #     c.data.common.use_template_torsion_angles = True
+    #     c.model.template.enabled = True
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name == "model_2_ptm":
+    #     c.data.common.reduce_max_clusters_by_max_templates = True
+    #     c.data.common.use_templates = True
+    #     c.data.common.use_template_torsion_angles = True
+    #     c.model.template.enabled = True
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name == "model_3_ptm":
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120
+    #     c.model.template.enabled = False
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name == "model_4_ptm":
+    #     c.data.train.max_extra_msa = 5120
+    #     c.data.predict.max_extra_msa = 5120
+    #     c.model.template.enabled = False
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name == "model_5_ptm":
+    #     c.model.template.enabled = False
+    #     c.model.heads.tm.enabled = True
+    #     c.loss.tm.weight = 0.1
+    # elif name.startswith("seq"):  # SINGLE SEQUENCE EMBEDDING PRESETS
+    #     c.update(seq_mode_config.copy_and_resolve_references())
+    #     if name == "seqemb_initial_training":
+    #         c.data.train.max_msa_clusters = 1
+    #         c.data.eval.max_msa_clusters = 1
+    #         c.data.train.block_delete_msa = False
+    #         c.data.train.max_distillation_msa_clusters = 1
+    #     elif name == "seqemb_finetuning":
+    #         c.data.train.max_msa_clusters = 1
+    #         c.data.eval.max_msa_clusters = 1
+    #         c.data.train.block_delete_msa = False
+    #         c.data.train.max_distillation_msa_clusters = 1
+    #         c.data.train.crop_size = 384
+    #         c.loss.violation.weight = 1.
+    #         c.loss.experimentally_resolved.weight = 0.01
+    #     elif name == "seq_model_esm1b":
+    #         c.data.common.use_templates = True
+    #         c.data.common.use_template_torsion_angles = True
+    #         c.model.template.enabled = True
+    #         c.data.predict.max_msa_clusters = 1
+    #     elif name == "seq_model_esm1b_ptm":
+    #         c.data.common.use_templates = True
+    #         c.data.common.use_template_torsion_angles = True
+    #         c.model.template.enabled = True
+    #         c.data.predict.max_msa_clusters = 1
+    #         c.model.heads.tm.enabled = True
+    #         c.loss.tm.weight = 0.1
+    # elif "multimer" in name:  # MULTIMER PRESETS
+    c.update(multimer_config_update.copy_and_resolve_references())
 
-        # Not used in multimer
-        del c.model.template.template_pointwise_attention
-        del c.loss.fape.backbone
+    # Not used in multimer
+    # del c.model.template.template_pointwise_attention
+    # del c.loss.fape.backbone
 
-        # TODO: Change max_msa_clusters and max_extra_msa to multimer feats within model
-        if re.fullmatch("^model_[1-5]_multimer(_v2)?$", name):
-            #c.model.input_embedder.num_msa = 252
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
-            c.data.train.crop_size = 384
+    # TODO: Change max_msa_clusters and max_extra_msa to multimer feats within model
+    # if re.fullmatch("^model_[1-5]_multimer(_v2)?$", name):
+    #     #c.model.input_embedder.num_msa = 252
+    #     #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+    #     c.data.train.crop_size = 384
 
-            c.data.train.max_msa_clusters = 252
-            c.data.eval.max_msa_clusters = 252
-            c.data.predict.max_msa_clusters = 252
+    #     c.data.train.max_msa_clusters = 252
+    #     c.data.eval.max_msa_clusters = 252
+    #     c.data.predict.max_msa_clusters = 252
 
-            c.data.train.max_extra_msa = 1152
-            c.data.eval.max_extra_msa = 1152
-            c.data.predict.max_extra_msa = 1152
+    #     c.data.train.max_extra_msa = 1152
+    #     c.data.eval.max_extra_msa = 1152
+    #     c.data.predict.max_extra_msa = 1152
 
-            c.model.evoformer_stack.fuse_projection_weights = False
-            c.model.extra_msa.extra_msa_stack.fuse_projection_weights = False
-            c.model.template.template_pair_stack.fuse_projection_weights = False
-        elif name == 'model_4_multimer_v3':
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
-            c.data.train.max_extra_msa = 1152
-            c.data.eval.max_extra_msa = 1152
-            c.data.predict.max_extra_msa = 1152
-        elif name == 'model_5_multimer_v3':
-            #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
-            c.data.train.max_extra_msa = 1152
-            c.data.eval.max_extra_msa = 1152
-            c.data.predict.max_extra_msa = 1152
-    else:
-        raise ValueError("Invalid model name")
+    #     c.model.evoformer_stack.fuse_projection_weights = False
+    #     c.model.extra_msa.extra_msa_stack.fuse_projection_weights = False
+    #     c.model.template.template_pair_stack.fuse_projection_weights = False
+    if name == 'model_4_multimer_v3':
+        #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+        c.data.train.max_extra_msa = 1152
+        c.data.eval.max_extra_msa = 1152
+        c.data.predict.max_extra_msa = 1152
+    elif name == 'model_5_multimer_v3':
+        #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+        c.data.train.max_extra_msa = 1152
+        c.data.eval.max_extra_msa = 1152
+        c.data.predict.max_extra_msa = 1152
+    # else:
+    #     raise ValueError("Invalid model name")
 
     if long_sequence_inference:
         assert(not train)
@@ -246,8 +260,8 @@ def model_config(
         c.globals.chunk_size = None
         c.globals.use_lma = False
         c.globals.offload_inference = False
-        c.model.template.average_templates = False
-        c.model.template.offload_templates = False
+        # c.model.template.average_templates = False
+        # c.model.template.offload_templates = False
     
     if low_prec:
         c.globals.eps = 1e-4
@@ -502,91 +516,91 @@ config = mlc.ConfigDict(
                 "no_bins": 15,
                 "inf": 1e8,
             },
-            "template": {
-                "distogram": {
-                    "min_bin": 3.25,
-                    "max_bin": 50.75,
-                    "no_bins": 39,
-                },
-                "template_single_embedder": {
-                    # DISCREPANCY: c_in is supposed to be 51.
-                    "c_in": 57,
-                    "c_out": c_m,
-                },
-                "template_pair_embedder": {
-                    "c_in": 88,
-                    "c_out": c_t,
-                },
-                "template_pair_stack": {
-                    "c_t": c_t,
-                    # DISCREPANCY: c_hidden_tri_att here is given in the supplement
-                    # as 64. In the code, it's 16.
-                    "c_hidden_tri_att": 16,
-                    "c_hidden_tri_mul": 64,
-                    "no_blocks": 2,
-                    "no_heads": 4,
-                    "pair_transition_n": 2,
-                    "dropout_rate": 0.25,
-                    "tri_mul_first": False,
-                    "fuse_projection_weights": False,
-                    "blocks_per_ckpt": blocks_per_ckpt,
-                    "tune_chunk_size": tune_chunk_size,
-                    "inf": 1e9,
-                },
-                "template_pointwise_attention": {
-                    "c_t": c_t,
-                    "c_z": c_z,
-                    # DISCREPANCY: c_hidden here is given in the supplement as 64.
-                    # It's actually 16.
-                    "c_hidden": 16,
-                    "no_heads": 4,
-                    "inf": 1e5,  # 1e9,
-                },
-                "inf": 1e5,  # 1e9,
-                "eps": eps,  # 1e-6,
-                "enabled": templates_enabled,
-                "embed_angles": embed_template_torsion_angles,
-                "use_unit_vector": False,
-                # Approximate template computation, saving memory.
-                # In our experiments, results are equivalent to or better than
-                # the stock implementation. Should be enabled for all new
-                # training runs.
-                "average_templates": False,
-                # Offload template embeddings to CPU memory. Vastly reduced
-                # memory consumption at the cost of a modest increase in
-                # runtime. Useful for inference on very long sequences.
-                # Mutually exclusive with average_templates. Automatically
-                # enabled if offload_inference is set.
-                "offload_templates": False,
-            },
-            "extra_msa": {
-                "extra_msa_embedder": {
-                    "c_in": 25,
-                    "c_out": c_e,
-                },
-                "extra_msa_stack": {
-                    "c_m": c_e,
-                    "c_z": c_z,
-                    "c_hidden_msa_att": 8,
-                    "c_hidden_opm": 32,
-                    "c_hidden_mul": 128,
-                    "c_hidden_pair_att": 32,
-                    "no_heads_msa": 8,
-                    "no_heads_pair": 4,
-                    "no_blocks": 4,
-                    "transition_n": 4,
-                    "msa_dropout": 0.15,
-                    "pair_dropout": 0.25,
-                    "opm_first": False,
-                    "fuse_projection_weights": False,
-                    "clear_cache_between_blocks": False,
-                    "tune_chunk_size": tune_chunk_size,
-                    "inf": 1e9,
-                    "eps": eps,  # 1e-10,
-                    "ckpt": blocks_per_ckpt is not None,
-                },
-                "enabled": True,
-            },
+            # "template": {
+            #     "distogram": {
+            #         "min_bin": 3.25,
+            #         "max_bin": 50.75,
+            #         "no_bins": 39,
+            #     },
+            #     "template_single_embedder": {
+            #         # DISCREPANCY: c_in is supposed to be 51.
+            #         "c_in": 57,
+            #         "c_out": c_m,
+            #     },
+            #     "template_pair_embedder": {
+            #         "c_in": 88,
+            #         "c_out": c_t,
+            #     },
+            #     "template_pair_stack": {
+            #         "c_t": c_t,
+            #         # DISCREPANCY: c_hidden_tri_att here is given in the supplement
+            #         # as 64. In the code, it's 16.
+            #         "c_hidden_tri_att": 16,
+            #         "c_hidden_tri_mul": 64,
+            #         "no_blocks": 2,
+            #         "no_heads": 4,
+            #         "pair_transition_n": 2,
+            #         "dropout_rate": 0.25,
+            #         "tri_mul_first": False,
+            #         "fuse_projection_weights": False,
+            #         "blocks_per_ckpt": blocks_per_ckpt,
+            #         "tune_chunk_size": tune_chunk_size,
+            #         "inf": 1e9,
+            #     },
+            #     "template_pointwise_attention": {
+            #         "c_t": c_t,
+            #         "c_z": c_z,
+            #         # DISCREPANCY: c_hidden here is given in the supplement as 64.
+            #         # It's actually 16.
+            #         "c_hidden": 16,
+            #         "no_heads": 4,
+            #         "inf": 1e5,  # 1e9,
+            #     },
+            #     "inf": 1e5,  # 1e9,
+            #     "eps": eps,  # 1e-6,
+            #     "enabled": templates_enabled,
+            #     "embed_angles": embed_template_torsion_angles,
+            #     "use_unit_vector": False,
+            #     # Approximate template computation, saving memory.
+            #     # In our experiments, results are equivalent to or better than
+            #     # the stock implementation. Should be enabled for all new
+            #     # training runs.
+            #     "average_templates": False,
+            #     # Offload template embeddings to CPU memory. Vastly reduced
+            #     # memory consumption at the cost of a modest increase in
+            #     # runtime. Useful for inference on very long sequences.
+            #     # Mutually exclusive with average_templates. Automatically
+            #     # enabled if offload_inference is set.
+            #     "offload_templates": False,
+            # },
+            # "extra_msa": {
+            #     "extra_msa_embedder": {
+            #         "c_in": 25,
+            #         "c_out": c_e,
+            #     },
+            #     "extra_msa_stack": {
+            #         "c_m": c_e,
+            #         "c_z": c_z,
+            #         "c_hidden_msa_att": 8,
+            #         "c_hidden_opm": 32,
+            #         "c_hidden_mul": 128,
+            #         "c_hidden_pair_att": 32,
+            #         "no_heads_msa": 8,
+            #         "no_heads_pair": 4,
+            #         "no_blocks": 4,
+            #         "transition_n": 4,
+            #         "msa_dropout": 0.15,
+            #         "pair_dropout": 0.25,
+            #         "opm_first": False,
+            #         "fuse_projection_weights": False,
+            #         "clear_cache_between_blocks": False,
+            #         "tune_chunk_size": tune_chunk_size,
+            #         "inf": 1e9,
+            #         "eps": eps,  # 1e-10,
+            #         "ckpt": blocks_per_ckpt is not None,
+            #     },
+            #     "enabled": True,
+            # },
             "evoformer_stack": {
                 "c_m": c_m,
                 "c_z": c_z,
@@ -680,11 +694,11 @@ config = mlc.ConfigDict(
                 "weight": 0.0,
             },
             "fape": {
-                "backbone": {
-                    "clamp_distance": 10.0,
-                    "loss_unit_distance": 10.0,
-                    "weight": 0.5,
-                },
+                # "backbone": {
+                #     "clamp_distance": 10.0,
+                #     "loss_unit_distance": 10.0,
+                #     "weight": 0.5,
+                # },
                 "sidechain": {
                     "clamp_distance": 10.0,
                     "length_scale": 10.0,
@@ -842,34 +856,34 @@ multimer_config_update = mlc.ConfigDict({
             "max_relative_idx": 32,
             "use_chain_relative": True
         },
-        "template": {
-            "template_single_embedder": {
-                "c_in": 34,
-                "c_out": c_m
-            },
-            "template_pair_embedder": {
-                "c_in": c_z,
-                "c_out": c_t,
-                "c_dgram": 39,
-                "c_aatype": 22
-            },
-            "template_pair_stack": {
-                "tri_mul_first": True,
-                "fuse_projection_weights": True
-            },
-            "c_t": c_t,
-            "c_z": c_z,
-            "use_unit_vector": True
-        },
-        "extra_msa": {
-            # "extra_msa_embedder": {
-            #     "num_extra_msa": 2048
-            # },
-            "extra_msa_stack": {
-                "opm_first": True,
-                "fuse_projection_weights": True
-            }
-        },
+        # "template": {
+        #     "template_single_embedder": {
+        #         "c_in": 34,
+        #         "c_out": c_m
+        #     },
+        #     "template_pair_embedder": {
+        #         "c_in": c_z,
+        #         "c_out": c_t,
+        #         "c_dgram": 39,
+        #         "c_aatype": 22
+        #     },
+        #     "template_pair_stack": {
+        #         "tri_mul_first": True,
+        #         "fuse_projection_weights": True
+        #     },
+        #     "c_t": c_t,
+        #     "c_z": c_z,
+        #     "use_unit_vector": True
+        # },
+        # "extra_msa": {
+        #     # "extra_msa_embedder": {
+        #     #     "num_extra_msa": 2048
+        #     # },
+        #     "extra_msa_stack": {
+        #         "opm_first": True,
+        #         "fuse_projection_weights": True
+        #     }
+        # },
         "evoformer_stack": {
             "opm_first": True,
             "fuse_projection_weights": True
@@ -921,36 +935,36 @@ multimer_config_update = mlc.ConfigDict({
 })
 
 
-seq_mode_config = mlc.ConfigDict({
-    "data": {
-        "common": {
-            "feat": {
-                "seq_embedding": [NUM_RES, None],
-            },
-            "seqemb_features": [ # List of features to be generated in seqemb mode
-                "seq_embedding"
-            ],
-        },
-        "seqemb_mode": { # Configuration for sequence embedding mode
-            "enabled": True, # If True, use seq emb instead of MSA
-        },
-    },
-    "globals": {
-        "seqemb_mode_enabled": True,
-    },
-    "model": {
-        "preembedding_embedder": {  # Used in sequence embedding mode
-            "tf_dim": 22,
-            "preembedding_dim": preemb_dim_size,
-            "c_z": c_z,
-            "c_m": c_m,
-            "relpos_k": 32,
-        },
-        "extra_msa": {
-            "enabled": False  # Disable Extra MSA Stack
-        },
-        "evoformer_stack": {
-            "no_column_attention": True  # Turn off Evoformer's column attention
-        },
-    }
-})
+# seq_mode_config = mlc.ConfigDict({
+#     "data": {
+#         "common": {
+#             "feat": {
+#                 "seq_embedding": [NUM_RES, None],
+#             },
+#             "seqemb_features": [ # List of features to be generated in seqemb mode
+#                 "seq_embedding"
+#             ],
+#         },
+#         "seqemb_mode": { # Configuration for sequence embedding mode
+#             "enabled": True, # If True, use seq emb instead of MSA
+#         },
+#     },
+#     "globals": {
+#         "seqemb_mode_enabled": True,
+#     },
+#     "model": {
+#         "preembedding_embedder": {  # Used in sequence embedding mode
+#             "tf_dim": 22,
+#             "preembedding_dim": preemb_dim_size,
+#             "c_z": c_z,
+#             "c_m": c_m,
+#             "relpos_k": 32,
+#         },
+#         "extra_msa": {
+#             "enabled": False  # Disable Extra MSA Stack
+#         },
+#         "evoformer_stack": {
+#             "no_column_attention": True  # Turn off Evoformer's column attention
+#         },
+#     }
+# })
