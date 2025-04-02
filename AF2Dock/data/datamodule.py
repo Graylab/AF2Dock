@@ -1,8 +1,6 @@
 from pathlib import Path
 from functools import partial
-import math
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 import ml_collections as mlc
 import torch
 import pytorch_lightning as pl
@@ -16,6 +14,7 @@ from pinder.data.plot.performance import get_subsampled_train
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from AF2Dock.data import of_data
+from AF2Dock.utils import utils
 
 class AF2DockDataset(torch.utils.data.Dataset):
     def __init__(self,
@@ -67,18 +66,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
     def idx_to_struct_id(self, idx):
         return self.data_index.iloc[idx]['id']
 
-    def truncate_seq_to_resolved(self, full_seq, resi_resolved):
-        l_index = resi_resolved.index(True)
-        r_index = len(resi_resolved) - resi_resolved[::-1].index(True) - 1
-        return full_seq[l_index:r_index + 1], resi_resolved[l_index:r_index + 1]
-
-    def get_chain_all_atom_feats(self, resi_auth, seqres, atom_array):
-        resi_resolved_full = [item != '' for item in resi_auth.split(',')]
-        assert len(resi_resolved_full) == len(seqres)
-        seq, resi_resolved = self.truncate_seq_to_resolved(seqres, resi_resolved_full)
-        all_atom_positions, all_atom_mask = of_data.get_atom_coords_pinder(seq, resi_resolved, atom_array)
-        return all_atom_positions, all_atom_mask, seq, resi_resolved
-
     def get_ini_struct_cate(self, cate_probs, cate_present):
         cate_names = list(cate_probs.keys())
         cate_probs_real = torch.tensor([cate_probs[key] if cate_present[key] else 0.0 for key in cate_names])
@@ -98,24 +85,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
         ini_seqential_id_to_holo_seq_sequential_id = {key: uniprot_to_holo_seq_sequential_id[ini_sequential_id_to_uniprot[key]] 
                                                       for key in ini_sequential_id_to_uniprot if ini_sequential_id_to_uniprot[key] in uniprot_to_holo_seq_sequential_id}
         return ini_seqential_id_to_holo_seq_sequential_id
-    
-    def get_rigid_body_noise_at_0(self, tr_sigma, rot_sigma):
-        tr_0 = torch.normal(0, tr_sigma, (3,))
-        rot_axis = torch.uniform(0, 1, (3,))
-        rot_axis = rot_axis / torch.linalg.norm(rot_axis)
-        rot_angle = torch.abs(torch.normal(0, rot_sigma)) % math.pi
-        rot_0 = rot_angle * rot_axis
-        return tr_0, rot_0
-    
-    def apply_rigid_body_noise(self, all_atom_positions, all_atom_mask, tr, rot):
-        ca_idx = residue_constants.atom_order["CA"]
-        com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
-        rot_t_mat = R.from_rotvec(rot).as_matrix()
-        all_atom_positions = all_atom_positions - com
-        all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat)
-        all_atom_positions = all_atom_positions + com + tr
-        all_atom_positions = all_atom_positions * all_atom_mask
-        return all_atom_positions
     
     def __getitem__(self, idx):
         struct_id = self.idx_to_struct_id(idx)
@@ -139,9 +108,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
                 part_seqres = self.entity_meta.query(f"entry_id == '{part_id.split('_')[0]}' and chain == '{part_id.split('_')[2]}'").sequence.values[0]
                 part_resi_auth = chain_meta_i[f"resi_auth_{abbr}"]
-                part_all_atom_positions, part_all_atom_mask, part_seq, part_resi_resolved = self.get_chain_all_atom_feats(part_resi_auth,
-                                                                                                                          part_seqres,
-                                                                                                                          getattr(ps, f'native_{abbr}').atom_array)
+                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_auth)
+                part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
+                                                                                             part_resi_resolved,
+                                                                                             getattr(ps, f'native_{abbr}').atom_array)
                 part_esm_embedding = torch.load(self.cached_esm_embedding_folder / f"{part_id}.pt")
                 assert part_esm_embedding.shape[0] == len(part_seq)
                 
@@ -175,7 +145,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.data.rigid_body.tr_sigma, self.config.data.rigid_body.rot_sigma)
                     tr_t = tr_0 * (1. - t)
                     rot_t = rot_0 * (1. - t)
-                    part_t_all_atom_positions = self.apply_rigid_body_noise(part_t_all_atom_positions, part_t_all_atom_mask, tr_t.numpy(), rot_t.numpy())
+                    part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
+                                                                                        part_t_all_atom_mask,
+                                                                                        tr_t.numpy(),
+                                                                                        rot_t.numpy())
                 part_feats_at_t = {
                     "template_all_atom_positions": part_t_all_atom_positions,
                     "template_all_atom_mask": part_t_all_atom_mask,
