@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# import re
 import copy
 import importlib
 import ml_collections as mlc
@@ -268,6 +269,8 @@ def model_config(
         # If we want exact numerical parity with the original, inf can't be
         # a global constant
         set_inf(c, 1e4)
+    
+    c.update(AF2Dock_config_update.copy_and_resolve_references())
 
     enforce_config_constraints(c)
 
@@ -368,16 +371,16 @@ config = mlc.ConfigDict(
                     "true_msa": [NUM_MSA_SEQ, NUM_RES],
                     "use_clamped_fape": [],
                 },
-                "block_delete_msa": {
-                    "msa_fraction_per_block": 0.3,
-                    "randomize_num_blocks": False,
-                    "num_blocks": 5,
-                },
-                "masked_msa": {
-                    "profile_prob": 0.1,
-                    "same_prob": 0.1,
-                    "uniform_prob": 0.1,
-                },
+                # "block_delete_msa": {
+                #     "msa_fraction_per_block": 0.3,
+                #     "randomize_num_blocks": False,
+                #     "num_blocks": 5,
+                # },
+                # "masked_msa": {
+                #     "profile_prob": 0.1,
+                #     "same_prob": 0.1,
+                #     "uniform_prob": 0.1,
+                # },
                 "max_recycling_iters": 3,
                 "msa_cluster_features": True,
                 "reduce_msa_clusters_by_max_templates": False,
@@ -401,9 +404,9 @@ config = mlc.ConfigDict(
                 "use_templates": templates_enabled,
                 "use_template_torsion_angles": embed_template_torsion_angles,
             },
-            "seqemb_mode": { # Configuration for sequence embedding mode
-                "enabled": False, # If True, use seq emb instead of MSA
-            },
+            # "seqemb_mode": { # Configuration for sequence embedding mode
+            #     "enabled": False, # If True, use seq emb instead of MSA
+            # },
             "supervised": {
                 "clamp_prob": 0.9,
                 "supervised_features": [
@@ -411,7 +414,7 @@ config = mlc.ConfigDict(
                     "all_atom_positions",
                     "resolution",
                     "use_clamped_fape",
-                    "is_distillation",
+                    # "is_distillation",
                 ],
             },
             "predict": {
@@ -421,7 +424,7 @@ config = mlc.ConfigDict(
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 512,
                 "max_extra_msa": 1024,
-                "max_template_hits": 4,
+                # "max_template_hits": 4,
                 "max_templates": 4,
                 "crop": False,
                 "crop_size": None,
@@ -437,7 +440,7 @@ config = mlc.ConfigDict(
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 128,
                 "max_extra_msa": 1024,
-                "max_template_hits": 4,
+                # "max_template_hits": 4,
                 "max_templates": 4,
                 "crop": False,
                 "crop_size": None,
@@ -453,21 +456,21 @@ config = mlc.ConfigDict(
                 "masked_msa_replace_fraction": 0.15,
                 "max_msa_clusters": 128,
                 "max_extra_msa": 1024,
-                "max_template_hits": 4,
+                # "max_template_hits": 4,
                 "max_templates": 4,
-                "shuffle_top_k_prefiltered": 20,
+                # "shuffle_top_k_prefiltered": 20,
                 "crop": True,
                 "crop_size": 256,
                 "spatial_crop_prob": 0.,
                 "interface_threshold": None,
                 "supervised": True,
                 "clamp_prob": 0.9,
-                "max_distillation_msa_clusters": 1000,
+                # "max_distillation_msa_clusters": 1000,
                 "uniform_recycling": True,
-                "distillation_prob": 0.75,
+                # "distillation_prob": 0.75,
             },
             "data_module": {
-                "use_small_bfd": False,
+                # "use_small_bfd": False,
                 "data_loaders": {
                     "batch_size": 1,
                     "num_workers": 16,
@@ -508,14 +511,14 @@ config = mlc.ConfigDict(
                 "c_m": c_m,
                 "relpos_k": 32,
             },
-            "recycling_embedder": {
-                "c_z": c_z,
-                "c_m": c_m,
-                "min_bin": 3.25,
-                "max_bin": 20.75,
-                "no_bins": 15,
-                "inf": 1e8,
-            },
+            # "recycling_embedder": {
+            #     "c_z": c_z,
+            #     "c_m": c_m,
+            #     "min_bin": 3.25,
+            #     "max_bin": 20.75,
+            #     "no_bins": 15,
+            #     "inf": 1e8,
+            # },
             # "template": {
             #     "distogram": {
             #         "min_bin": 3.25,
@@ -656,10 +659,10 @@ config = mlc.ConfigDict(
                     "no_bins": aux_distogram_bins,
                     "enabled": tm_enabled,
                 },
-                "masked_msa": {
-                    "c_m": c_m,
-                    "c_out": 23,
-                },
+                # "masked_msa": {
+                #     "c_m": c_m,
+                #     "c_out": 23,
+                # },
                 "experimentally_resolved": {
                     "c_s": c_s,
                     "c_out": 37,
@@ -715,11 +718,11 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-10,
                 "weight": 0.01,
             },
-            "masked_msa": {
-                "num_classes": 23,
-                "eps": eps,  # 1e-8,
-                "weight": 2.0,
-            },
+            # "masked_msa": {
+            #     "num_classes": 23,
+            #     "eps": eps,  # 1e-8,
+            #     "weight": 2.0,
+            # },
             "supervised_chi": {
                 "chi_weight": 0.5,
                 "angle_norm_weight": 0.01,
@@ -897,9 +900,9 @@ multimer_config_update = mlc.ConfigDict({
                 "iptm_weight": 0.8,
                 "enabled": True
             },
-            "masked_msa": {
-                "c_out": 22
-            },
+            # "masked_msa": {
+            #     "c_out": 22
+            # },
         },
         "recycle_early_stop_tolerance": 0.5  # For training, value is -1.
     },
@@ -916,9 +919,9 @@ multimer_config_update = mlc.ConfigDict({
                 "weight": 0.5
             }
         },
-        "masked_msa": {
-            "num_classes": 22
-        },
+        # "masked_msa": {
+        #     "num_classes": 22
+        # },
         "violation": {
             "average_clashes": True,
             "weight": 0.03 # Not finetuning
@@ -968,3 +971,51 @@ multimer_config_update = mlc.ConfigDict({
 #         },
 #     }
 # })
+
+AF2Dock_config_update = mlc.ConfigDict({
+    "data": {
+        "common": {
+            "max_recycling_iters": 0,
+            "use_template_torsion_angles": False,
+        },
+        "predict": {
+            "max_msa_clusters": 1,
+            "max_extra_msa": 0,
+            "masked_msa_replace_fraction": 0.0,
+            "max_templates": 1
+        },
+        "eval": {
+            "max_msa_clusters": 1,
+            "max_extra_msa": 0,
+            "masked_msa_replace_fraction": 0.0,
+            "max_templates": 1,
+            "pinder_cate_prob": {
+                "holo": 1.0,
+                "apo": 0.0,
+                "pred": 0.0,
+            }
+        },
+        "train": {
+            "max_msa_clusters": 1,
+            "max_extra_msa": 0,
+            "masked_msa_replace_fraction": 0.0,
+            "max_templates": 1,
+            "block_delete_msa" : False,
+            "crop": True,
+            "crop_size": 640,
+            "spatial_crop_prob": 1.0,
+            "pinder_cate_prob": {
+                "holo": 0.7,
+                "apo": 0.15,
+                "pred": 0.15,
+            }
+        },
+        "rigid_body": {
+            "tr_sigma": 30.0,
+            "rot_sigma": 0.8
+        }
+    },
+    "model": {
+        "recycle_early_stop_tolerance": -1
+    }
+})

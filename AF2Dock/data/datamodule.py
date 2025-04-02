@@ -124,7 +124,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
             ps = PinderSystem(struct_id)
             chain_meta_i = self.chain_meta.query(f"id == '{struct_id}'").iloc[0]
-            cate_probs_ori = {'holo':0.6, 'apo':0.2, 'pred':0.2} #change to read from config
+            cate_probs_ori = self.config.data[self.mode].pinder_cate_prob
 
             all_atom_positions_dict = {}
             all_atom_mask_dict = {}
@@ -170,7 +170,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_t_all_atom_mask = part_ini_all_atom_mask * part_all_atom_mask
                 part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t.item()) + part_all_atom_positions * t.item()) * part_t_all_atom_mask
                 if part == 'lig':
-                    tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.tr_sigma, self.config.rot_sigma)
+                    tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.data.rigid_body.tr_sigma, self.config.data.rigid_body.rot_sigma)
                     tr_t = tr_0 * (1. - t)
                     rot_t = rot_0 * (1. - t)
                     part_t_all_atom_positions = self.apply_rigid_body_noise(part_t_all_atom_positions, part_t_all_atom_mask, tr_t.numpy(), rot_t.numpy())
