@@ -11,8 +11,10 @@ from openfold.data import (
     feature_pipeline,
 )
 from openfold.np import residue_constants
-from pinder.core.index.utils import PinderSystem, get_index, get_supplementary_data
+from pinder.core import PinderSystem, get_index, get_supplementary_data
 from pinder.data.plot.performance import get_subsampled_train
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from AF2Dock.data import of_data
 
 class AF2DockDataset(torch.utils.data.Dataset):
@@ -124,7 +126,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
             ps = PinderSystem(struct_id)
             chain_meta_i = self.chain_meta.query(f"id == '{struct_id}'").iloc[0]
-            cate_probs_ori = self.config.data[self.mode].pinder_cate_prob
+            cate_probs_ori = dict(self.config.data[self.mode].pinder_cate_prob)
 
             all_atom_positions_dict = {}
             all_atom_mask_dict = {}
@@ -211,11 +213,11 @@ class AF2DockDataset(torch.utils.data.Dataset):
             device=data["aatype"].device)
         
         # Unsqueeze for recycle dimension (1)
-        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0).unsqueeze(0)
+        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0).unsqueeze(0).to(data["aatype"].device)
         if self.mode == 'train' or self.mode == 'eval':
-            data["t"] = t.unsqueeze(0)
-            data["tr_0"] = tr_0.unsqueeze(0)
-            data["rot_0"] = rot_0.unsqueeze(0)
+            data["t"] = t.unsqueeze(0).to(data["aatype"].device)
+            data["tr_0"] = tr_0.unsqueeze(0).to(data["aatype"].device)
+            data["rot_0"] = rot_0.unsqueeze(0).to(data["aatype"].device)
         
         return data
 
