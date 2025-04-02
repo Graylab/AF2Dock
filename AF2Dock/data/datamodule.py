@@ -1,5 +1,6 @@
 from pathlib import Path
 from functools import partial
+import math
 import numpy as np
 import ml_collections as mlc
 import torch
@@ -86,12 +87,20 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                       for key in ini_sequential_id_to_uniprot if ini_sequential_id_to_uniprot[key] in uniprot_to_holo_seq_sequential_id}
         return ini_seqential_id_to_holo_seq_sequential_id
     
+    def get_rigid_body_noise_at_0(self, tr_sigma, rot_sigma):
+         tr_0 = torch.normal(0, tr_sigma, (3,))
+         rot_axis = torch.rand(3)
+         rot_axis = rot_axis / torch.linalg.norm(rot_axis)
+         rot_angle = torch.abs(torch.normal(0, rot_sigma)) % math.pi
+         rot_0 = rot_angle * rot_axis
+         return tr_0.numpy(), rot_0.numpy()
+    
     def __getitem__(self, idx):
         struct_id = self.idx_to_struct_id(idx)
         index_entry = self.data_index.iloc[idx]
 
         if self.mode == 'train' or self.mode == 'eval':
-            t = torch.rand(1) * (1. - 1e-5) + 1e-5
+            t = torch.rand(1).item() * (1. - 1e-5) + 1e-5
 
             ps = PinderSystem(struct_id)
             chain_meta_i = self.chain_meta.query(f"id == '{struct_id}'").iloc[0]
@@ -112,7 +121,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                              part_resi_resolved,
                                                                                              getattr(ps, f'native_{abbr}').atom_array)
-                part_esm_embedding = torch.load(self.cached_esm_embedding_folder / f"{part_id}.pt")
+                part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.pkl")
                 assert part_esm_embedding.shape[0] == len(part_seq)
                 
                 # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
@@ -140,15 +149,15 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 
                 # Interpolate and add noise
                 part_t_all_atom_mask = part_ini_all_atom_mask * part_all_atom_mask
-                part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t.item()) + part_all_atom_positions * t.item()) * part_t_all_atom_mask
+                part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t) + part_all_atom_positions * t) * part_t_all_atom_mask
                 if part == 'lig':
                     tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.data.rigid_body.tr_sigma, self.config.data.rigid_body.rot_sigma)
                     tr_t = tr_0 * (1. - t)
                     rot_t = rot_0 * (1. - t)
                     part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
                                                                                         part_t_all_atom_mask,
-                                                                                        tr_t.numpy(),
-                                                                                        rot_t.numpy())
+                                                                                        tr_t,
+                                                                                        rot_t)
                 part_feats_at_t = {
                     "template_all_atom_positions": part_t_all_atom_positions,
                     "template_all_atom_mask": part_t_all_atom_mask,
@@ -171,6 +180,11 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 struct_feats_at_t_dict=struct_feats_at_t_dict,
             )
 
+            data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0)
+            data["t"] = t
+            data["tr_0"] = tr_0
+            data["rot_0"] = rot_0
+
         else:
             raise NotImplementedError("Predict mode not implemented yet")
 
@@ -184,13 +198,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
             [idx for _ in range(data["aatype"].shape[-1])],
             dtype=torch.int64,
             device=data["aatype"].device)
-        
-        # Unsqueeze for recycle dimension (1)
-        data["esm_embedding"] = torch.cat([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0).unsqueeze(0).to(data["aatype"].device)
-        if self.mode == 'train' or self.mode == 'eval':
-            data["t"] = t.unsqueeze(0).to(data["aatype"].device)
-            data["tr_0"] = tr_0.unsqueeze(0).to(data["aatype"].device)
-            data["rot_0"] = rot_0.unsqueeze(0).to(data["aatype"].device)
         
         return data
 

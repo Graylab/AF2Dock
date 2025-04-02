@@ -975,6 +975,12 @@ multimer_config_update = mlc.ConfigDict({
 AF2Dock_config_update = mlc.ConfigDict({
     "data": {
         "common": {
+            "feat": {
+                "esm_embedding": [NUM_RES, None],
+                "t": [],
+                "tr_0": [None],
+                "rot_0": [None]
+            },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
         },
@@ -1000,6 +1006,7 @@ AF2Dock_config_update = mlc.ConfigDict({
             "max_extra_msa": 0,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
+            "subsample_templates": False,
             "block_delete_msa" : False,
             "crop": True,
             "crop_size": 640,
