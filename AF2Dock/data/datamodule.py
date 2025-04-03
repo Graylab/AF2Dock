@@ -156,6 +156,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     rot_t = rot_0 * (1. - t)
                     part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
                                                                                         part_t_all_atom_mask,
+                                                                                        residue_constants.atom_order["CA"],
                                                                                         tr_t,
                                                                                         rot_t)
                 part_feats_at_t = {
