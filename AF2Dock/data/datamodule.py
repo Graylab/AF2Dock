@@ -10,10 +10,11 @@ from openfold.data import (
     feature_pipeline,
 )
 from openfold.np import residue_constants
-from pinder.core import PinderSystem, get_index, get_supplementary_data
+from pinder.core import PinderSystem, get_index, get_supplementary_data, get_metadata
 from pinder.data.plot.performance import get_subsampled_train
-import sys, os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+import sys
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from AF2Dock.data import of_data
 from AF2Dock.utils import utils
 
@@ -51,13 +52,17 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
         if mode == "train":
             full_index = get_index()
+            self.entity_meta = get_supplementary_data("entity_metadata")
+            self.chain_meta = get_supplementary_data("chain_metadata")
             self.data_index = get_subsampled_train(full_index)
-            self.entity_meta = get_supplementary_data("entity_metadata")
-            self.chain_meta = get_supplementary_data("chain_metadata")
+            self.data_index = utils.further_filter(self.data_index, 
+                                                   get_metadata(),
+                                                   self.entity_meta,
+                                                   self.chain_meta)
         elif mode == "eval":
-            self.data_index = get_index().query("split == 'val'")
             self.entity_meta = get_supplementary_data("entity_metadata")
             self.chain_meta = get_supplementary_data("chain_metadata")
+            self.data_index = get_index().query("split == 'val'")
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
 
@@ -73,13 +78,13 @@ class AF2DockDataset(torch.utils.data.Dataset):
         cate = cate_names[torch.multinomial(cate_probs_real, 1).item()]
         return cate
     
-    def get_map_by_uniprot(self, ini, holo, res_auth):
-        ini_pdb_res_num, _ = ini.get_residues()
+    def get_map_by_uniprot(self, ini, holo, part_resi_auth_split):
+        ini_pdb_res_num, _ = get_residues(ini)
         ini_seqential_id_to_pdb = {idx: ini_pdb_res_num[idx] for idx in range(len(ini_pdb_res_num))}
         ini_uniprot_map = ini.resolved_pdb2uniprot
         ini_sequential_id_to_uniprot = {key: ini_uniprot_map[ini_seqential_id_to_pdb[key]] for key in ini_seqential_id_to_pdb if ini_seqential_id_to_pdb[key] in ini_uniprot_map}
-        holo_seq_pos = res_auth.strip(',').split(',')
-        holo_seq_seqential_id_to_pdb = {idx: holo_seq_pos[idx] for idx in range(len(holo_seq_pos)) if holo_seq_pos[idx] != ''}
+        holo_seq_pos = ','.join(part_resi_auth_split).strip(',').split(',')
+        holo_seq_seqential_id_to_pdb = {idx: int(holo_seq_pos[idx]) for idx in range(len(holo_seq_pos)) if holo_seq_pos[idx] != ''}
         holo_uniprot_map = holo.resolved_pdb2uniprot
         holo_seq_sequential_id_to_uniprot = {key: holo_uniprot_map[holo_seq_seqential_id_to_pdb[key]] for key in holo_seq_seqential_id_to_pdb if holo_seq_seqential_id_to_pdb[key] in holo_uniprot_map}
         uniprot_to_holo_seq_sequential_id = {v: k for k, v in holo_seq_sequential_id_to_uniprot.items()}
@@ -117,11 +122,18 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
                 part_seqres = self.entity_meta.query(f"entry_id == '{part_id.split('_')[0]}' and chain == '{part_id.split('_')[2]}'").sequence.values[0]
                 part_resi_auth = chain_meta_i[f"resi_auth_{abbr}"]
-                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_auth)
+                part_resi_auth_split = part_resi_auth.split(',')
+                if len(part_resi_auth_split) != len(part_seqres):
+                    part_resi_auth_split = utils.fix_resi_auth(part_resi_auth_split)
+                    if len(part_resi_auth_split) != len(part_seqres):
+                        # e.g. 8hco chain G, fall back to sequence in structure
+                        part_seqres, part_resi_auth_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
+                    assert len(part_resi_auth_split) == len(part_seqres)
+                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_auth_split)
                 part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                              part_resi_resolved,
                                                                                              getattr(ps, f'native_{abbr}').atom_array)
-                part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.pkl")
+                part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
                 assert part_esm_embedding.shape[0] == len(part_seq)
                 
                 # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
@@ -129,7 +141,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_ini_struct = getattr(ps, f"{part_cate}_{abbr}")
                 part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
                 if part_cate != 'holo':
-                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, getattr(ps, f'native_{abbr}'), part_resi_auth)
+                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, getattr(ps, f'native_{abbr}'), part_resi_auth_split)
 
                     part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
                     part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
