@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
-from biotite.structure import get_residues
-from biotite.structure.info import one_letter_code
+from biotite.structure import get_residues, info
 
 def fix_resi_auth(resi_auth_split):
     #e.g. 4v88 chain BO
@@ -35,7 +34,7 @@ def get_seq_from_atom_array(atom_array):
     part_resi_auth_split = [str(pdb_res_num[i]) for i in range(len(pdb_res_num))]
     pdb_res_one_letter = []
     for res_name in pdb_res_name:
-        olc = one_letter_code(res_name)
+        olc = info.one_letter_code(res_name)
         if olc is None or len(olc) > 1:
             olc = 'X'
         pdb_res_one_letter.append(olc)
@@ -62,7 +61,7 @@ def get_seq_from_atom_array(atom_array):
 
     return part_seqres, part_resi_auth_split
 
-def further_filter(train_index, index_meta, entity_meta, chain_meta):
+def prefilter(train_index, index_meta, entity_meta, chain_meta):
     # Remove entries with more than 1 consecutive 'X' in the sequence
     entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
     rec_id = train_index['holo_R_pdb'].apply(lambda x: x.split('.pdb')[0])

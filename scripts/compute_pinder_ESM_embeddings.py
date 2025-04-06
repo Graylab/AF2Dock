@@ -1,6 +1,7 @@
 import logging
 import argparse
 from pathlib import Path
+import pickle
 
 import numpy as np
 from tqdm import tqdm
@@ -37,7 +38,7 @@ def add_args(parser):
     )
     parser.add_argument(
         '--test-set',
-        default='pinder_af2',
+        default='pinder_s',
         choices=['pinder_af2', 'pinder_xl', 'pinder_s'],
         help="",
     )
@@ -58,26 +59,28 @@ def main(args):
 
     indexes_to_compute = []
     if not args.skip_train_val:
+        train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
         if not args.full_train:
-            train_indexes = get_subsampled_train(full_index)
-            train_indexes = utils.further_filter(train_indexes,
-                                                 get_metadata(),
-                                                 entity_meta,
-                                                 chain_meta)
-            indexes_to_compute.append(train_indexes)
+            train_index = utils.prefilter(train_index,
+                                          get_metadata(),
+                                          entity_meta,
+                                          chain_meta)
+            train_index = get_subsampled_train(train_index)
+            indexes_to_compute.append(train_index)
         else:
-            train_indexes = full_index.query("split == 'train'")
-            indexes_to_compute.append(train_indexes)
-        indexes_to_compute.append(full_index.query("split == 'val'"))
+            indexes_to_compute.append(train_index)
+        indexes_to_compute.append(full_index.query("split == 'val'").copy().reset_index(drop=True))
     
-    test_indexes = full_index.query(f'{args.test_set} == True')
-    indexes_to_compute.append(test_indexes)
+    test_index = full_index.query(f'{args.test_set} == True').copy().reset_index(drop=True)
+    indexes_to_compute.append(test_index)
 
+    sequences = {}
     for data_index in tqdm(indexes_to_compute):
         for idx in tqdm(range(len(data_index))):
             index_entry = data_index.iloc[idx]
             struct_id = index_entry['id']
             chain_meta_i = chain_meta.query(f"id == '{struct_id}'").iloc[0]
+            struct_seq = {}
             for part in ['rec', 'lig']:
                 abbr = 'R' if part == 'rec' else 'L'
                 part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
@@ -95,6 +98,10 @@ def main(args):
                 part_esm_embeddings = get_esm_embeddings(part_seq, client)
                 part_esm_embeddings = part_esm_embeddings.cpu().numpy()
                 np.save(args.outdir / f"{part_id}.npy", part_esm_embeddings)
+                struct_seq[part] = part_seq
+            sequences[struct_id] = struct_seq
+    with open(args.outdir / 'sequences.pkl', 'wb') as f:
+        pickle.dump(sequences, f)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
