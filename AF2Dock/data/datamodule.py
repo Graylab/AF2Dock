@@ -5,6 +5,7 @@ import numpy as np
 import ml_collections as mlc
 import torch
 import pytorch_lightning as pl
+from biotite.structure import get_residues
 from openfold.data import (
     data_modules,
     feature_pipeline,
@@ -50,27 +51,36 @@ class AF2DockDataset(torch.utils.data.Dataset):
         self.data_pipeline = of_data.DataPipelineMultimer()
         self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
 
-        if mode == "train":
+        if mode == "train" or mode == "eval":
             full_index = get_index()
-            self.entity_meta = get_supplementary_data("entity_metadata")
-            self.chain_meta = get_supplementary_data("chain_metadata")
-            self.data_index = get_subsampled_train(full_index)
-            self.data_index = utils.further_filter(self.data_index, 
-                                                   get_metadata(),
-                                                   self.entity_meta,
-                                                   self.chain_meta)
-        elif mode == "eval":
-            self.entity_meta = get_supplementary_data("entity_metadata")
-            self.chain_meta = get_supplementary_data("chain_metadata")
-            self.data_index = get_index().query("split == 'val'")
+            entity_meta = get_supplementary_data("entity_metadata")
+            chain_meta = get_supplementary_data("chain_metadata")
+            if mode == "train":
+                train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
+                train_index = utils.prefilter(train_index,
+                                              get_metadata(),
+                                              entity_meta,
+                                              chain_meta)
+                self.data_index = get_subsampled_train(train_index)
+            elif mode == "eval":
+                self.data_index = get_index().query("split == 'val'").copy().reset_index(drop=True)
+            entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
+            self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+            self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+            self.data_index = self.data_index.merge(entity_meta['part_id', 'sequence'], 
+                                                    left_on='holo_R_id',
+                                                    right_on='part_id',
+                                                    how='left').rename(columns={'sequence': 'seq_R'})
+            self.data_index = self.data_index.merge(entity_meta['part_id', 'sequence'],
+                                                    left_on='holo_L_id',
+                                                    right_on='part_id',
+                                                    how='left').rename(columns={'sequence': 'seq_L'})
+            self.data_index = self.data_index.merge(chain_meta[['id', 'resi_auth_R', 'resi_auth_L']],
+                                                    on='id',
+                                                    how='left')
+            self.data_index = self.data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
-
-    def struct_id_to_idx(self, struct_id):
-        return self.data_index.index[self.data_index['id'] == struct_id].values[0]
-
-    def idx_to_struct_id(self, idx):
-        return self.data_index.iloc[idx]['id']
 
     def get_ini_struct_cate(self, cate_probs, cate_present):
         cate_names = list(cate_probs.keys())
@@ -101,14 +111,13 @@ class AF2DockDataset(torch.utils.data.Dataset):
          return tr_0.numpy(), rot_0.numpy()
     
     def __getitem__(self, idx):
-        struct_id = self.idx_to_struct_id(idx)
         index_entry = self.data_index.iloc[idx]
+        struct_id = index_entry['id']
 
         if self.mode == 'train' or self.mode == 'eval':
             t = torch.rand(1).item() * (1. - 1e-5) + 1e-5
 
             ps = PinderSystem(struct_id)
-            chain_meta_i = self.chain_meta.query(f"id == '{struct_id}'").iloc[0]
             cate_probs_ori = dict(self.config.data[self.mode].pinder_cate_prob)
 
             all_atom_positions_dict = {}
@@ -120,8 +129,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
             for part in ['rec', 'lig']:
                 abbr = 'R' if part == 'rec' else 'L'
                 part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
-                part_seqres = self.entity_meta.query(f"entry_id == '{part_id.split('_')[0]}' and chain == '{part_id.split('_')[2]}'").sequence.values[0]
-                part_resi_auth = chain_meta_i[f"resi_auth_{abbr}"]
+                part_seqres = index_entry[f'seq_{abbr}']
+                part_resi_auth = index_entry[f"resi_auth_{abbr}"]
                 part_resi_auth_split = part_resi_auth.split(',')
                 if len(part_resi_auth_split) != len(part_seqres):
                     part_resi_auth_split = utils.fix_resi_auth(part_resi_auth_split)
