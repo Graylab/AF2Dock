@@ -79,8 +79,7 @@ def prefilter(train_index, index_meta, entity_meta, chain_meta):
     entity_meta.drop('part_id', axis=1, inplace=True)
 
     # Remove entries with mismatched sequence length and auth resi number
-    train_index['index_col'] = train_index.index
-    chain_meta_train = pd.merge(train_index, chain_meta, on='id').sort_values('index_col').drop('index_col', axis=1)
+    chain_meta_train = pd.merge(train_index, chain_meta[["id", 'resi_auth_R', 'resi_auth_L']], how='left', on='id')
     rec_seq_len = ordered_rec_data.sequence.apply(lambda x: len(x)).to_numpy()
     lig_seq_len = ordered_lig_data.sequence.apply(lambda x: len(x)).to_numpy()
     rec_resi_auth_len = chain_meta_train['resi_auth_R'].apply(lambda x: len(x.split(','))).to_numpy()
@@ -89,10 +88,9 @@ def prefilter(train_index, index_meta, entity_meta, chain_meta):
     lig_len_mismatched = lig_seq_len != lig_resi_auth_len
 
     # Remove entries with buried_sasa less than 400
-    train_with_meta = pd.merge(train_index,index_meta[["id",'buried_sasa']], how="inner", on="id").sort_values('index_col').drop('index_col', axis=1)
+    train_with_meta = pd.merge(train_index, index_meta[["id",'buried_sasa']], how="left", on="id")
     low_buried_sasa = train_with_meta['buried_sasa'] < 400
 
-    train_index.drop('index_col', axis=1, inplace=True)
     train_index = train_index[~rec_len_mismatched & ~lig_len_mismatched & ~rec_has_XX & ~lig_has_XX & ~low_buried_sasa]
     train_index = train_index.reset_index(drop=True)
 
