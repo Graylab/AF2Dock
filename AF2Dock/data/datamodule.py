@@ -88,12 +88,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
         cate = cate_names[torch.multinomial(cate_probs_real, 1).item()]
         return cate
     
-    def get_map_by_uniprot(self, ini, holo, part_resi_auth_split):
+    def get_map_by_uniprot(self, ini, holo, part_resi_split):
         ini_pdb_res_num, _ = get_residues(ini)
         ini_seqential_id_to_pdb = {idx: ini_pdb_res_num[idx] for idx in range(len(ini_pdb_res_num))}
         ini_uniprot_map = ini.resolved_pdb2uniprot
         ini_sequential_id_to_uniprot = {key: ini_uniprot_map[ini_seqential_id_to_pdb[key]] for key in ini_seqential_id_to_pdb if ini_seqential_id_to_pdb[key] in ini_uniprot_map}
-        holo_seq_pos = ','.join(part_resi_auth_split).strip(',').split(',')
+        holo_seq_pos = ','.join(part_resi_split).strip(',').split(',')
         holo_seq_seqential_id_to_pdb = {idx: int(holo_seq_pos[idx]) for idx in range(len(holo_seq_pos)) if holo_seq_pos[idx] != ''}
         holo_uniprot_map = holo.resolved_pdb2uniprot
         holo_seq_sequential_id_to_uniprot = {key: holo_uniprot_map[holo_seq_seqential_id_to_pdb[key]] for key in holo_seq_seqential_id_to_pdb if holo_seq_seqential_id_to_pdb[key] in holo_uniprot_map}
@@ -132,13 +132,22 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_seqres = index_entry[f'seq_{abbr}']
                 part_resi_auth = index_entry[f"resi_auth_{abbr}"]
                 part_resi_auth_split = part_resi_auth.split(',')
-                if len(part_resi_auth_split) != len(part_seqres):
-                    part_resi_auth_split = utils.fix_resi_auth(part_resi_auth_split)
-                    if len(part_resi_auth_split) != len(part_seqres):
-                        # e.g. 8hco chain G, fall back to sequence in structure
-                        part_seqres, part_resi_auth_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
-                    assert len(part_resi_auth_split) == len(part_seqres)
-                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_auth_split)
+                part_resi_auth_resolved_num = len(part_resi_auth_split) - part_resi_auth_split.count('')
+                struct_resi, _ = get_residues(getattr(ps, f'native_{abbr}').atom_array)
+                assert part_resi_auth_resolved_num == len(struct_resi), "Mismatched lengths between resi auth and structure"
+                part_resi_split = []
+                idx = 0
+                for resi in part_resi_auth_split:
+                    if resi != '':
+                        part_resi_split.append(str(struct_resi[idx]))
+                        idx += 1
+                    else:
+                        part_resi_split.append('')
+                if len(part_resi_split) != len(part_seqres):
+                    # e.g. 8hco chain G, fall back to sequence in structure
+                    part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
+                assert len(part_resi_split) == len(part_seqres)
+                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_split)
                 part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                              part_resi_resolved,
                                                                                              getattr(ps, f'native_{abbr}').atom_array)
@@ -150,7 +159,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 part_ini_struct = getattr(ps, f"{part_cate}_{abbr}")
                 part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
                 if part_cate != 'holo':
-                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, getattr(ps, f'native_{abbr}'), part_resi_auth_split)
+                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, getattr(ps, f'native_{abbr}'), part_resi_split)
 
                     part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
                     part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
