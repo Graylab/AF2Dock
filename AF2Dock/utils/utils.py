@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
-from biotite.structure import get_residues, info
+from biotite.structure import get_residues
+from pinder.core.structure.atoms import resn2seq
 
 def fix_resi_auth(resi_auth_split):
     #e.g. 4v88 chain BO
@@ -29,35 +30,32 @@ def truncate_to_resolved(seqres, resi_split):
     r_index = len(resi_resolved_full) - resi_resolved_full[::-1].index(True) - 1
     return seqres[l_index:r_index + 1], resi_resolved_full[l_index:r_index + 1]
 
-def get_seq_from_atom_array(atom_array):
+def get_seq_from_atom_array(atom_array, fill_gaps=True):
     pdb_res_num, pdb_res_name = get_residues(atom_array)
     part_resi_split = [str(pdb_res_num[i]) for i in range(len(pdb_res_num))]
-    pdb_res_one_letter = []
-    for res_name in pdb_res_name:
-        olc = info.one_letter_code(res_name)
-        if olc is None or len(olc) > 1:
-            olc = 'X'
-        pdb_res_one_letter.append(olc)
+    pdb_res_one_letter = resn2seq(pdb_res_name)
 
-    # fill the gap in res_num with X
-    part_resi_split_with_gap = []
-    pdb_res_one_letter_with_gap = []
-    for idx, (res_name, res_num) in enumerate(zip(pdb_res_one_letter, part_resi_split)):
-        if idx == 0:
-            part_resi_split_with_gap.append(res_num)
-            pdb_res_one_letter_with_gap.append(res_name)
-        else:
-            res_num_diff = int(res_num) - int(part_resi_split_with_gap[-1])
-            if res_num_diff > 1:
-                for i in range(1, res_num_diff):
-                    part_resi_split_with_gap.append(str(int(part_resi_split_with_gap[-1]) + 1))
-                    pdb_res_one_letter_with_gap.append('X')
-            part_resi_split_with_gap.append(res_num)
-            pdb_res_one_letter_with_gap.append(res_name)
-    
-    part_resi_split = part_resi_split_with_gap
-    pdb_res_one_letter = pdb_res_one_letter_with_gap
-    part_seqres = ''.join(pdb_res_one_letter)
+    if fill_gaps:
+        # fill the gap in res_num with X
+        part_resi_split_with_gap = []
+        pdb_res_one_letter_with_gap = []
+        for idx, (res_name, res_num) in enumerate(zip(pdb_res_one_letter, part_resi_split)):
+            if idx == 0:
+                part_resi_split_with_gap.append(res_num)
+                pdb_res_one_letter_with_gap.append(res_name)
+            else:
+                res_num_diff = int(res_num) - int(part_resi_split_with_gap[-1])
+                if res_num_diff > 1:
+                    for i in range(1, res_num_diff):
+                        part_resi_split_with_gap.append(str(int(part_resi_split_with_gap[-1]) + 1))
+                        pdb_res_one_letter_with_gap.append('X')
+                part_resi_split_with_gap.append(res_num)
+                pdb_res_one_letter_with_gap.append(res_name)
+        
+        part_resi_split = part_resi_split_with_gap
+        part_seqres = ''.join(pdb_res_one_letter_with_gap)
+    else:
+        part_seqres = pdb_res_one_letter
 
     return part_seqres, part_resi_split
 

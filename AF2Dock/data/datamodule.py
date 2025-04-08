@@ -67,11 +67,11 @@ class AF2DockDataset(torch.utils.data.Dataset):
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-            self.data_index = self.data_index.merge(entity_meta['part_id', 'sequence'], 
+            self.data_index = self.data_index.merge(entity_meta[['part_id', 'sequence']], 
                                                     left_on='holo_R_id',
                                                     right_on='part_id',
                                                     how='left').rename(columns={'sequence': 'seq_R'})
-            self.data_index = self.data_index.merge(entity_meta['part_id', 'sequence'],
+            self.data_index = self.data_index.merge(entity_meta[['part_id', 'sequence']],
                                                     left_on='holo_L_id',
                                                     right_on='part_id',
                                                     how='left').rename(columns={'sequence': 'seq_L'})
@@ -128,12 +128,13 @@ class AF2DockDataset(torch.utils.data.Dataset):
             
             for part in ['rec', 'lig']:
                 abbr = 'R' if part == 'rec' else 'L'
+                full_n = 'receptor' if part == 'rec' else 'ligand'
                 part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
                 part_seqres = index_entry[f'seq_{abbr}']
                 part_resi_auth = index_entry[f"resi_auth_{abbr}"]
                 part_resi_auth_split = part_resi_auth.split(',')
                 part_resi_auth_resolved_num = len(part_resi_auth_split) - part_resi_auth_split.count('')
-                struct_resi, _ = get_residues(getattr(ps, f'native_{abbr}').atom_array)
+                struct_resi = getattr(ps, f'native_{abbr}').residues
                 assert part_resi_auth_resolved_num == len(struct_resi), "Mismatched lengths between resi auth and structure"
                 part_resi_split = []
                 idx = 0
@@ -146,20 +147,21 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 if len(part_resi_split) != len(part_seqres):
                     # e.g. 8hco chain G, fall back to sequence in structure
                     part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
-                assert len(part_resi_split) == len(part_seqres)
+                assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
                 part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_split)
                 part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                              part_resi_resolved,
                                                                                              getattr(ps, f'native_{abbr}').atom_array)
                 part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
-                assert part_esm_embedding.shape[0] == len(part_seq)
+                assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
                 
                 # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
-                part_cate = self.get_ini_struct_cate(cate_probs_ori, {cate: getattr(ps, f"{cate}_{abbr}") is not None for cate in cate_probs_ori.keys()})
-                part_ini_struct = getattr(ps, f"{part_cate}_{abbr}")
-                part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
+                part_cate = self.get_ini_struct_cate(cate_probs_ori, {cate: getattr(ps, f"{cate}_{full_n}") is not None for cate in cate_probs_ori.keys()})
                 if part_cate != 'holo':
-                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, getattr(ps, f'native_{abbr}'), part_resi_split)
+                    part_ini_struct = getattr(ps, f"{part_cate}_{full_n}")
+                    part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
+                    part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
+                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
 
                     part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
                     part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]

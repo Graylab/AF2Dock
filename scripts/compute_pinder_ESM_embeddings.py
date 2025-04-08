@@ -74,15 +74,15 @@ def main(args):
     test_index = full_index.query(f'{args.test_set} == True').copy().reset_index(drop=True)
     indexes_to_compute.append(test_index)
 
+    entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
     for data_index in indexes_to_compute:
-        entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
         data_index['holo_R_id'] = data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
         data_index['holo_L_id'] = data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-        data_index = data_index.merge(entity_meta['part_id', 'sequence'], 
+        data_index = data_index.merge(entity_meta[['part_id', 'sequence']], 
                                                 left_on='holo_R_id',
                                                 right_on='part_id',
                                                 how='left').rename(columns={'sequence': 'seq_R'})
-        data_index = data_index.merge(entity_meta['part_id', 'sequence'],
+        data_index = data_index.merge(entity_meta[['part_id', 'sequence']],
                                                 left_on='holo_L_id',
                                                 right_on='part_id',
                                                 how='left').rename(columns={'sequence': 'seq_L'})
@@ -108,7 +108,7 @@ def main(args):
                     # e.g. 8hco chain G, fall back to sequence in structure
                     ps = PinderSystem(struct_id)
                     part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
-                assert len(part_resi_split) == len(part_seqres)
+                assert len(part_resi_split) == len(part_seqres), "Length mismatch between resi and seq"
                 part_seq, _ = utils.truncate_to_resolved(part_seqres, part_resi_split)
                 part_esm_embeddings = get_esm_embeddings(part_seq, client)
                 part_esm_embeddings = part_esm_embeddings.cpu().numpy()
