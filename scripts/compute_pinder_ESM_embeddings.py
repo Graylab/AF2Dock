@@ -75,6 +75,7 @@ def main(args):
     indexes_to_compute.append(test_index)
 
     entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
+    indexes_to_compute_with_addi_meta = []
     for data_index in indexes_to_compute:
         data_index['holo_R_id'] = data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
         data_index['holo_L_id'] = data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -90,6 +91,8 @@ def main(args):
                                                 on='id',
                                                 how='left')
         data_index = data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
+        indexes_to_compute_with_addi_meta.append(data_index)
+    indexes_to_compute = indexes_to_compute_with_addi_meta
 
     sequences = {}
     for data_index in tqdm(indexes_to_compute):
