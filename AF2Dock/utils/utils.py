@@ -47,7 +47,7 @@ def get_seq_from_atom_array(atom_array, fill_gaps=True):
                 res_num_diff = int(res_num) - int(part_resi_split_with_gap[-1])
                 if res_num_diff > 1:
                     for i in range(1, res_num_diff):
-                        part_resi_split_with_gap.append(str(int(part_resi_split_with_gap[-1]) + 1))
+                        part_resi_split_with_gap.append('')
                         pdb_res_one_letter_with_gap.append('X')
                 part_resi_split_with_gap.append(res_num)
                 pdb_res_one_letter_with_gap.append(res_name)
