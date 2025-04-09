@@ -94,6 +94,66 @@ def prefilter(train_index, index_meta, entity_meta, chain_meta):
 
     return train_index
 
+def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta: pd.DataFrame) -> pd.DataFrame:
+    # Modified from pinder.data.plot.performance.get_subsampled_train
+    train = split_index.query("split == 'train'").reset_index(drop=True)
+    train.loc[:, "apo_count"] = train[["apo_R", "apo_L"]].sum(axis=1).astype(int)
+    train.loc[:, "pred_count"] = (
+        train[["predicted_R", "predicted_L"]].sum(axis=1).astype(int)
+    )
+    train.loc[:, "apo_pred_available"] = -(
+        (train.apo_count > 0) & (train.pred_count > 0)
+    ).astype("int")
+    train.loc[:, "apo_available"] = -(train.apo_count > 0).astype("int")
+    train.loc[:, "pred_available"] = -(train.pred_count > 0).astype("int")
+    # split_meta = get_metadata().copy()
+    train = pd.merge(
+        train,
+        split_meta[
+            [
+                "id",
+                "method",
+                "num_atom_types",
+                "max_var_1",
+                "max_var_2",
+                "length_resolved_1",
+                "length_resolved_2",
+                "resolution",
+            ]
+        ],
+        how="inner",
+        on="id",
+    )
+    train.loc[:, "is_xray"] = -np.array([("RAY" in x) for x in train["method"]]).astype(
+        int
+    )
+    train["resolution"] = train["resolution"].astype(float)
+    train = train[
+        (
+            train["num_atom_types"] >= 4
+        )  # ensures that proteins contain full spectrum of atoms - this is not always the case for low quality structures
+        & (
+            train["max_var_1"] < 0.98
+        )  # top 1 component of the PCA (of coords) should be lower than 0.98 to ignore low complexity elongated structures
+        & (train["max_var_2"] < 0.98)
+        & (train["length_resolved_1"] > 40)  # length filter for the resolved residues
+        & (train["length_resolved_2"] > 40)
+        & (train["resolution"] < 5.0)
+    ]
+    train["cluster_struct_seq"] = train["cluster_id"].astype(str) + "_" + train["seq_cluster_R"].astype(str) + "_" + train["seq_cluster_L"].astype(str)
+    sample_ids = set(
+        train.sort_values(
+            ["apo_available", "pred_available", "is_xray", "resolution"], ascending=True
+        )
+        .groupby("cluster_struct_seq", as_index=False, observed=True)
+        .head(2)
+        .id
+    )
+    sampled_train = split_index[split_index["id"].isin(sample_ids)].reset_index(
+        drop=True
+    )
+    return sampled_train
+
 def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx, tr, rot):
     com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
     rot_t_mat = R.from_rotvec(rot).as_matrix()

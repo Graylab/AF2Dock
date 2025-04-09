@@ -2,6 +2,7 @@ from pathlib import Path
 from functools import partial
 import math
 import numpy as np
+import pandas as pd
 import ml_collections as mlc
 import torch
 import pytorch_lightning as pl
@@ -24,6 +25,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  config: mlc.ConfigDict,
                  mode: str = "train",
                  cached_esm_embedding_folder: str = None,
+                 pinder_entity_seq_cluster_pkl: str = None,
                  ):
         """
         This class check each individual PDB ID and return its chain(s) features/ground truth 
@@ -61,7 +63,22 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                               get_metadata(),
                                               entity_meta,
                                               chain_meta)
-                self.data_index = get_subsampled_train(train_index)
+                if pinder_entity_seq_cluster_pkl is not None:
+                    entity_seq_cluster = pd.read_pickle(pinder_entity_seq_cluster_pkl)
+                    train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+                    train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+                    train_index = train_index.merge(entity_seq_cluster, 
+                                                    left_on='holo_R_id',
+                                                    right_on='part_id',
+                                                    how='left').rename(columns={'seq_cluster': 'seq_cluster_R'})
+                    train_index = train_index.merge(entity_seq_cluster, 
+                                                    left_on='holo_L_id',
+                                                    right_on='part_id',
+                                                    how='left').rename(columns={'seq_cluster': 'seq_cluster_L'})
+                    train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
+                    self.data_index = utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
+                else:
+                    self.data_index = get_subsampled_train(train_index)
             elif mode == "eval":
                 self.data_index = get_index().query("split == 'val'").copy().reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
