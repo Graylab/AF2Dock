@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 from typing import MutableMapping, Tuple
 import numpy as np
 from openfold.data import (
@@ -136,7 +135,7 @@ def merge_features(all_chain_features):
         np_chains_list,
         msa_crop_size=feature_processing_multimer.MSA_CROP_SIZE,
         pair_msa_sequences=pair_msa_sequences,
-        max_templates=0,
+        max_templates=1,
     )
     # merge_chain_features crashes if there are additional features only present in one chain
     # remove all features that are not present in all chains
@@ -148,7 +147,7 @@ def merge_features(all_chain_features):
     np_example = feature_processing_multimer.msa_pairing.merge_chain_features(
         np_chains_list=np_chains_list,
         pair_msa_sequences=pair_msa_sequences,
-        max_templates=0,
+        max_templates=1,
     )
     np_example = feature_processing_multimer.process_final(np_example)
 

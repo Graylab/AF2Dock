@@ -139,7 +139,6 @@ def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta:
         & (train["length_resolved_1"] > 40)  # length filter for the resolved residues
         & (train["length_resolved_2"] > 40)
         & (train["resolution"] < 5.0)
-        # & (train["resolution"] > 0.5)
     ]
 
     seq_cluster_R_num = train["seq_cluster_R"].apply(lambda x: int(x.split("_")[-1]))
@@ -167,5 +166,5 @@ def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx,
     all_atom_positions = all_atom_positions - com
     all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat)
     all_atom_positions = all_atom_positions + com + tr
-    all_atom_positions = all_atom_positions * all_atom_mask
+    all_atom_positions = all_atom_positions * all_atom_mask[..., None]
     return all_atom_positions

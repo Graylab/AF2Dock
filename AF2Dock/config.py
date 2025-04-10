@@ -404,9 +404,9 @@ config = mlc.ConfigDict(
                 "use_templates": templates_enabled,
                 "use_template_torsion_angles": embed_template_torsion_angles,
             },
-            # "seqemb_mode": { # Configuration for sequence embedding mode
-            #     "enabled": False, # If True, use seq emb instead of MSA
-            # },
+            "seqemb_mode": { # Configuration for sequence embedding mode
+                "enabled": False, # If True, use seq emb instead of MSA
+            },
             "supervised": {
                 "clamp_prob": 0.9,
                 "supervised_features": [
@@ -983,16 +983,35 @@ AF2Dock_config_update = mlc.ConfigDict({
             },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
+            "unsupervised_features": [
+                "aatype",
+                "residue_index",
+                "msa",
+                "num_alignments",
+                "seq_length",
+                "between_segment_residues",
+                "deletion_matrix",
+                "no_recycling_iters",
+                "msa_mask",
+                "seq_mask",
+                "asym_id",
+                "entity_id",
+                "sym_id",
+                "esm_embedding",
+                "t",
+                "tr_0",
+                "rot_0",
+            ],
         },
         "predict": {
             "max_msa_clusters": 1,
-            "max_extra_msa": 0,
+            "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1
         },
         "eval": {
             "max_msa_clusters": 1,
-            "max_extra_msa": 0,
+            "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
             "pinder_cate_prob": {
@@ -1003,7 +1022,7 @@ AF2Dock_config_update = mlc.ConfigDict({
         },
         "train": {
             "max_msa_clusters": 1,
-            "max_extra_msa": 0,
+            "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
             "subsample_templates": False,

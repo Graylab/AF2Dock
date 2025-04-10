@@ -31,7 +31,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
         This class check each individual PDB ID and return its chain(s) features/ground truth 
             Args:
                 config:
-                    A dataset config object. See openfold.config
+                    A dataset config object. See openfold.config.data
                 mode:
                     "train", "val", or "predict"
         """
@@ -120,10 +120,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
         return ini_seqential_id_to_holo_seq_sequential_id
     
     def get_rigid_body_noise_at_0(self, tr_sigma, rot_sigma):
-         tr_0 = torch.normal(0, tr_sigma, (3,))
+         tr_0 = torch.randn(3) * tr_sigma
          rot_axis = torch.rand(3)
          rot_axis = rot_axis / torch.linalg.norm(rot_axis)
-         rot_angle = torch.abs(torch.normal(0, rot_sigma)) % math.pi
+         rot_angle = torch.abs(torch.randn(1) * rot_sigma) % math.pi
          rot_0 = rot_angle * rot_axis
          return tr_0.numpy(), rot_0.numpy()
     
@@ -135,7 +135,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
             t = torch.rand(1).item() * (1. - 1e-5) + 1e-5
 
             ps = PinderSystem(struct_id)
-            cate_probs_ori = dict(self.config.data[self.mode].pinder_cate_prob)
+            cate_probs_ori = dict(self.config[self.mode].pinder_cate_prob)
 
             all_atom_positions_dict = {}
             all_atom_mask_dict = {}
@@ -170,6 +170,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                                                              part_resi_resolved,
                                                                                              getattr(ps, f'native_{abbr}').atom_array)
                 part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
+                part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
                 assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
                 
                 # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
@@ -191,16 +192,16 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     part_ini_overlapped_atom_array = part_ini_struct.atom_array[list(part_holo_ini_overlap_range.keys())]
                     part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
                 else:
-                    part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_mask, part_all_atom_positions
-                part_ini_aatype = residue_constants.sequence_to_onehot(
+                    part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
+                part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
                     part_seq, residue_constants.HHBLITS_AA_TO_ID
-                )
+                ))
                 
                 # Interpolate and add noise
                 part_t_all_atom_mask = part_ini_all_atom_mask * part_all_atom_mask
-                part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t) + part_all_atom_positions * t) * part_t_all_atom_mask
+                part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t) + part_all_atom_positions * t) * part_t_all_atom_mask[..., None]
                 if part == 'lig':
-                    tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.data.rigid_body.tr_sigma, self.config.data.rigid_body.rot_sigma)
+                    tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.rigid_body.tr_sigma, self.config.rigid_body.rot_sigma)
                     tr_t = tr_0 * (1. - t)
                     rot_t = rot_0 * (1. - t)
                     part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
@@ -209,10 +210,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                                                         tr_t,
                                                                                         rot_t)
                 part_feats_at_t = {
-                    "template_all_atom_positions": part_t_all_atom_positions,
-                    "template_all_atom_mask": part_t_all_atom_mask,
-                    "template_sequence": part_seq.encode(),
-                    "template_aatype": part_ini_aatype,
+                    "template_all_atom_positions": part_t_all_atom_positions[np.newaxis, ...],
+                    "template_all_atom_mask": part_t_all_atom_mask[np.newaxis, ...],
+                    # "template_sequence": np.array([part_seq.encode()]),
+                    "template_aatype": part_ini_aatype[np.newaxis, ...],
                 }
 
                 all_atom_positions_dict[part] = part_all_atom_positions
@@ -230,7 +231,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 struct_feats_at_t_dict=struct_feats_at_t_dict,
             )
 
-            data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], dim=0)
+            data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
             data["t"] = t
             data["tr_0"] = tr_0
             data["rot_0"] = rot_0
