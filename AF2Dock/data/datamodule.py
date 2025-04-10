@@ -6,7 +6,7 @@ import pandas as pd
 import ml_collections as mlc
 import torch
 import pytorch_lightning as pl
-from biotite.structure import get_residues
+from biotite.structure import get_residues, get_residue_starts
 from openfold.data import (
     data_modules,
     feature_pipeline,
@@ -107,7 +107,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
         return cate
     
     def get_map_by_uniprot(self, ini, holo, part_resi_split):
-        ini_pdb_res_num, _ = get_residues(ini)
+        ini_pdb_res_num, _ = get_residues(ini.atom_array)
         ini_seqential_id_to_pdb = {idx: ini_pdb_res_num[idx] for idx in range(len(ini_pdb_res_num))}
         ini_uniprot_map = ini.resolved_pdb2uniprot
         ini_sequential_id_to_uniprot = {key: ini_uniprot_map[ini_seqential_id_to_pdb[key]] for key in ini_seqential_id_to_pdb if ini_seqential_id_to_pdb[key] in ini_uniprot_map}
@@ -181,17 +181,26 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
                     part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
                     part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
-
-                    part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
-                    part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                    part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                    part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                    part_resi_resolved = part_resi_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                    part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                     
-                    part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
-                    part_ini_overlapped_atom_array = part_ini_struct.atom_array[list(part_holo_ini_overlap_range.keys())]
-                    part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
+                    if len(part_ini_to_holo_map) / len(part_seq) > 0.8:
+                        part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
+                        part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                        part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                        part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                        part_resi_resolved = part_resi_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                        part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                        
+                        part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
+                        indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
+                        resi_starts = get_residue_starts(part_ini_struct.atom_array, add_exclusive_stop=True)
+                        part_ini_resi_in_holo = [True if idx in part_ini_to_holo_map.keys() else False for idx in range(len(resi_starts) - 1)]
+                        for idx, resolved in enumerate(part_ini_resi_in_holo):
+                            if not resolved:
+                                indexes_to_keep[resi_starts[idx]:resi_starts[idx + 1]] = False
+                        part_ini_overlapped_atom_array = part_ini_struct.atom_array[indexes_to_keep]
+                        part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
+                    else:
+                        part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
                 else:
                     part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
                 part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
