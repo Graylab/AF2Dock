@@ -139,8 +139,15 @@ def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta:
         & (train["length_resolved_1"] > 40)  # length filter for the resolved residues
         & (train["length_resolved_2"] > 40)
         & (train["resolution"] < 5.0)
+        # & (train["resolution"] > 0.5)
     ]
-    train["cluster_struct_seq"] = train["cluster_id"].astype(str) + "_" + train["seq_cluster_R"].astype(str) + "_" + train["seq_cluster_L"].astype(str)
+
+    seq_cluster_R_num = train["seq_cluster_R"].apply(lambda x: int(x.split("_")[-1]))
+    seq_cluster_L_num = train["seq_cluster_L"].apply(lambda x: int(x.split("_")[-1]))
+    s_seq_cluster = np.minimum(seq_cluster_R_num, seq_cluster_L_num)
+    l_seq_cluster = np.maximum(seq_cluster_R_num, seq_cluster_L_num)
+    train["cluster_struct_seq"] = train["cluster_id"].astype(str) + "_" + s_seq_cluster.astype(str) + "_" + l_seq_cluster.astype(str)
+    
     sample_ids = set(
         train.sort_values(
             ["apo_available", "pred_available", "is_xray", "resolution"], ascending=True
