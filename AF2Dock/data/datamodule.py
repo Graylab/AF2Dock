@@ -10,6 +10,7 @@ from biotite.structure import get_residues
 from openfold.data import (
     data_modules,
     feature_pipeline,
+    data_transforms,
 )
 from openfold.np import residue_constants
 from pinder.core import PinderSystem, get_index, get_supplementary_data, get_metadata
@@ -238,6 +239,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
         else:
             raise NotImplementedError("Predict mode not implemented yet")
+        
+        data = data_transforms.make_template_mask(data) # needed for template to not get deleted by feature_pipeline
 
         # process all_chain_features
         data = self.feature_pipeline.process_features(data,

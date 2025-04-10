@@ -983,6 +983,13 @@ AF2Dock_config_update = mlc.ConfigDict({
             },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
+            "template_features": [
+                "template_all_atom_positions",
+                "template_sum_probs",
+                "template_aatype",
+                "template_all_atom_mask",
+                "template_mask",
+            ],
             "unsupervised_features": [
                 "aatype",
                 "residue_index",
