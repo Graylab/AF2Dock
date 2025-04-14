@@ -77,14 +77,14 @@ def main(args):
                 entity_seq_cluster = pd.read_pickle(args.pinder_entity_seq_cluster_pkl)
                 train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
                 train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-                train_index = train_index.merge(entity_seq_cluster, 
+                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
                                                 left_on='holo_R_id',
                                                 right_on='part_id',
-                                                how='left').rename(columns={'seq_cluster': 'seq_cluster_R'})
-                train_index = train_index.merge(entity_seq_cluster, 
+                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_R'})
+                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
                                                 left_on='holo_L_id',
                                                 right_on='part_id',
-                                                how='left').rename(columns={'seq_cluster': 'seq_cluster_L'})
+                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
                 train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
                 train_index = utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
             else:

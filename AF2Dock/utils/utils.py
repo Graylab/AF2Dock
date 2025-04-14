@@ -141,8 +141,8 @@ def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta:
         & (train["resolution"] < 5.0)
     ]
 
-    seq_cluster_R_num = train["seq_cluster_R"].apply(lambda x: int(x.split("_")[-1]))
-    seq_cluster_L_num = train["seq_cluster_L"].apply(lambda x: int(x.split("_")[-1]))
+    seq_cluster_R_num = train["seq_cluster_R"].apply(lambda x: int(x))
+    seq_cluster_L_num = train["seq_cluster_L"].apply(lambda x: int(x))
     s_seq_cluster = np.minimum(seq_cluster_R_num, seq_cluster_L_num)
     l_seq_cluster = np.maximum(seq_cluster_R_num, seq_cluster_L_num)
     train["cluster_struct_seq"] = train["cluster_id"].astype(str) + "_" + s_seq_cluster.astype(str) + "_" + l_seq_cluster.astype(str)
