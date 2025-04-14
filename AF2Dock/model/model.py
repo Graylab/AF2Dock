@@ -73,7 +73,7 @@ class AF2Dock(nn.Module):
         multichain_mask_2d = (
             asym_id[..., None] == asym_id[..., None, :]
         )
-        template_embeds = self.template_embedder(
+        template_pair_embed = self.template_embedder(
             batch,
             z,
             pair_mask.to(dtype=z.dtype),
@@ -85,11 +85,8 @@ class AF2Dock(nn.Module):
             inplace_safe=inplace_safe,
             _mask_trans=self.config._mask_trans
         )
-        feats["template_torsion_angles_mask"] = (
-            template_embeds["template_mask"]
-        )
 
-        return template_embeds
+        return template_pair_embed
 
     def iteration(self, feats):
         # Primary output dictionary
@@ -124,8 +121,9 @@ class AF2Dock(nn.Module):
         template_feats = {
             k: v for k, v in feats.items() if k.startswith("template_")
         }
+        template_feats["esm_embedding"] = feats["esm_embedding"]
 
-        template_embeds = self.embed_templates(
+        template_pair_embed = self.embed_templates(
             template_feats,
             feats,
             z,
@@ -136,7 +134,7 @@ class AF2Dock(nn.Module):
 
         # [*, N, N, C_z]
         z = add(z,
-                template_embeds.pop("template_pair_embedding"),
+                template_pair_embed,
                 inplace_safe,
                 )
 
