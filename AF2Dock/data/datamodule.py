@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from functools import partial
 import math
@@ -21,6 +22,8 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from AF2Dock.data import of_data
 from AF2Dock.utils import utils
 
+logger = logging.getLogger(__name__)
+
 class AF2DockDataset(torch.utils.data.Dataset):
     def __init__(self,
                  config: mlc.ConfigDict,
@@ -29,7 +32,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  pinder_entity_seq_cluster_pkl: str = None,
                  ):
         """
-        This class check each individual PDB ID and return its chain(s) features/ground truth 
             Args:
                 config:
                     A dataset config object. See openfold.config.data
@@ -132,137 +134,147 @@ class AF2DockDataset(torch.utils.data.Dataset):
         index_entry = self.data_index.iloc[idx]
         struct_id = index_entry['id']
 
-        if self.mode == 'train' or self.mode == 'eval':
-            t = torch.rand(1).item() * (1. - 1e-5) + 1e-5
+        try:
+            if self.mode == 'train' or self.mode == 'eval':
+                t = torch.rand(1).item() * (1. - 1e-5) + 1e-5
 
-            ps = PinderSystem(struct_id)
-            cate_probs_ori = dict(self.config[self.mode].pinder_cate_prob)
+                ps = PinderSystem(struct_id)
+                cate_probs_ori = dict(self.config[self.mode].pinder_cate_prob)
 
-            all_atom_positions_dict = {}
-            all_atom_mask_dict = {}
-            seq_dict = {}
-            struct_feats_at_t_dict = {}
-            esm_embedding_dict = {}
-            
-            for part in ['rec', 'lig']:
-                abbr = 'R' if part == 'rec' else 'L'
-                full_n = 'receptor' if part == 'rec' else 'ligand'
-                part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
-                part_seqres = index_entry[f'seq_{abbr}']
-                part_resi_auth = index_entry[f"resi_auth_{abbr}"]
-                part_resi_auth_split = part_resi_auth.split(',')
-                part_resi_auth_resolved_num = len(part_resi_auth_split) - part_resi_auth_split.count('')
-                struct_resi = getattr(ps, f'native_{abbr}').residues
-                assert part_resi_auth_resolved_num == len(struct_resi), "Mismatched lengths between resi auth and structure"
-                part_resi_split = []
-                idx = 0
-                for resi in part_resi_auth_split:
-                    if resi != '':
-                        part_resi_split.append(str(struct_resi[idx]))
-                        idx += 1
-                    else:
-                        part_resi_split.append('')
-                if len(part_resi_split) != len(part_seqres):
-                    # e.g. 8hco chain G, fall back to sequence in structure
-                    part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
-                assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
-                part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_split)
-                part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
-                                                                                             part_resi_resolved,
-                                                                                             getattr(ps, f'native_{abbr}').atom_array)
-                part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
-                part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
-                assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
+                all_atom_positions_dict = {}
+                all_atom_mask_dict = {}
+                seq_dict = {}
+                struct_feats_at_t_dict = {}
+                esm_embedding_dict = {}
                 
-                # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
-                part_cate = self.get_ini_struct_cate(cate_probs_ori, {cate: getattr(ps, f"{cate}_{full_n}") is not None for cate in cate_probs_ori.keys()})
-                if part_cate != 'holo':
-                    part_ini_struct = getattr(ps, f"{part_cate}_{full_n}")
-                    part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
-                    part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
-                    part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
+                for part in ['rec', 'lig']:
+                    abbr = 'R' if part == 'rec' else 'L'
+                    full_n = 'receptor' if part == 'rec' else 'ligand'
+                    part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
+                    part_seqres = index_entry[f'seq_{abbr}']
+                    part_resi_auth = index_entry[f"resi_auth_{abbr}"]
+                    part_resi_auth_split = part_resi_auth.split(',')
+                    part_resi_auth_resolved_num = len(part_resi_auth_split) - part_resi_auth_split.count('')
+                    struct_resi = getattr(ps, f'native_{abbr}').residues
+                    assert part_resi_auth_resolved_num == len(struct_resi), "Mismatched lengths between resi auth and structure"
+                    part_resi_split = []
+                    idx = 0
+                    for resi in part_resi_auth_split:
+                        if resi != '':
+                            part_resi_split.append(str(struct_resi[idx]))
+                            idx += 1
+                        else:
+                            part_resi_split.append('')
+                    if len(part_resi_split) != len(part_seqres):
+                        # e.g. 8hco chain G, fall back to sequence in structure
+                        part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
+                    assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
+                    part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_split)
+                    part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
+                                                                                                part_resi_resolved,
+                                                                                                getattr(ps, f'native_{abbr}').atom_array)
+                    part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
+                    part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
+                    assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
                     
-                    if len(part_ini_to_holo_map) / len(part_seq) > 0.8:
-                        part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
-                        part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                        part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                        part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                        part_resi_resolved = part_resi_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                        part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                    # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
+                    part_cate = self.get_ini_struct_cate(cate_probs_ori, {cate: getattr(ps, f"{cate}_{full_n}") is not None for cate in cate_probs_ori.keys()})
+                    if part_cate != 'holo':
+                        part_ini_struct = getattr(ps, f"{part_cate}_{full_n}")
+                        part_ini_struct, _, _ = part_ini_struct.superimpose(getattr(ps, f'native_{abbr}'))
+                        part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
+                        part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
                         
-                        part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
-                        indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
-                        resi_starts = get_residue_starts(part_ini_struct.atom_array, add_exclusive_stop=True)
-                        part_ini_resi_in_holo = [True if idx in part_ini_to_holo_map.keys() else False for idx in range(len(resi_starts) - 1)]
-                        for idx, resolved in enumerate(part_ini_resi_in_holo):
-                            if not resolved:
-                                indexes_to_keep[resi_starts[idx]:resi_starts[idx + 1]] = False
-                        part_ini_overlapped_atom_array = part_ini_struct.atom_array[indexes_to_keep]
-                        part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
+                        if len(part_ini_to_holo_map) / len(part_seq) > 0.8:
+                            part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
+                            part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            part_resi_resolved = part_resi_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            
+                            part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
+                            indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
+                            resi_starts = get_residue_starts(part_ini_struct.atom_array, add_exclusive_stop=True)
+                            part_ini_resi_in_holo = [True if idx in part_ini_to_holo_map.keys() else False for idx in range(len(resi_starts) - 1)]
+                            for idx, resolved in enumerate(part_ini_resi_in_holo):
+                                if not resolved:
+                                    indexes_to_keep[resi_starts[idx]:resi_starts[idx + 1]] = False
+                            part_ini_overlapped_atom_array = part_ini_struct.atom_array[indexes_to_keep]
+                            part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
+                        else:
+                            part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
                     else:
                         part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
-                else:
-                    part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
-                part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
-                    part_seq, residue_constants.HHBLITS_AA_TO_ID
-                ))
-                
-                # Interpolate and add noise
-                part_t_all_atom_mask = part_ini_all_atom_mask * part_all_atom_mask
-                part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t) + part_all_atom_positions * t) * part_t_all_atom_mask[..., None]
-                if part == 'lig':
-                    tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.rigid_body.tr_sigma, self.config.rigid_body.rot_sigma)
-                    tr_t = tr_0 * (1. - t)
-                    rot_t = rot_0 * (1. - t)
-                    part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
-                                                                                        part_t_all_atom_mask,
-                                                                                        residue_constants.atom_order["CA"],
-                                                                                        tr_t,
-                                                                                        rot_t)
-                part_feats_at_t = {
-                    "template_all_atom_positions": part_t_all_atom_positions[np.newaxis, ...],
-                    "template_all_atom_mask": part_t_all_atom_mask[np.newaxis, ...],
-                    # "template_sequence": np.array([part_seq.encode()]),
-                    "template_aatype": part_ini_aatype[np.newaxis, ...],
-                }
+                    part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
+                        part_seq, residue_constants.HHBLITS_AA_TO_ID
+                    ))
+                    
+                    # Interpolate and add noise
+                    part_t_all_atom_mask = part_ini_all_atom_mask * part_all_atom_mask
+                    part_t_all_atom_positions = (part_ini_all_atom_positions * (1. - t) + part_all_atom_positions * t) * part_t_all_atom_mask[..., None]
+                    if part == 'lig':
+                        tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.rigid_body.tr_sigma, self.config.rigid_body.rot_sigma)
+                        tr_t = tr_0 * (1. - t)
+                        rot_t = rot_0 * (1. - t)
+                        part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
+                                                                                            part_t_all_atom_mask,
+                                                                                            residue_constants.atom_order["CA"],
+                                                                                            tr_t,
+                                                                                            rot_t)
+                    part_feats_at_t = {
+                        "template_all_atom_positions": part_t_all_atom_positions[np.newaxis, ...],
+                        "template_all_atom_mask": part_t_all_atom_mask[np.newaxis, ...],
+                        # "template_sequence": np.array([part_seq.encode()]),
+                        "template_aatype": part_ini_aatype[np.newaxis, ...],
+                    }
 
-                all_atom_positions_dict[part] = part_all_atom_positions
-                all_atom_mask_dict[part] = part_all_atom_mask
-                seq_dict[part] = part_seq
-                esm_embedding_dict[part] = part_esm_embedding
-                struct_feats_at_t_dict[part] = part_feats_at_t
+                    all_atom_positions_dict[part] = part_all_atom_positions
+                    all_atom_mask_dict[part] = part_all_atom_mask
+                    seq_dict[part] = part_seq
+                    esm_embedding_dict[part] = part_esm_embedding
+                    struct_feats_at_t_dict[part] = part_feats_at_t
 
-            fasta_str = f">rec\n{seq_dict['rec']}\n>lig\n{seq_dict['lig']}\n"
+                fasta_str = f">rec\n{seq_dict['rec']}\n>lig\n{seq_dict['lig']}\n"
 
-            data = self.data_pipeline.process_fasta_with_atom_pos(
-                input_fasta_str=fasta_str,
-                all_atom_positions_dict=all_atom_positions_dict,
-                all_atom_mask_dict=all_atom_mask_dict,
-                struct_feats_at_t_dict=struct_feats_at_t_dict,
-            )
+                data = self.data_pipeline.process_fasta_with_atom_pos(
+                    input_fasta_str=fasta_str,
+                    all_atom_positions_dict=all_atom_positions_dict,
+                    all_atom_mask_dict=all_atom_mask_dict,
+                    struct_feats_at_t_dict=struct_feats_at_t_dict,
+                )
 
-            data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
-            data["t"] = t
-            data["tr_0"] = tr_0
-            data["rot_0"] = rot_0
+                data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
+                data["t"] = t
+                data["tr_0"] = tr_0
+                data["rot_0"] = rot_0
 
-        else:
-            raise NotImplementedError("Predict mode not implemented yet")
+            else:
+                raise NotImplementedError("Predict mode not implemented yet")
+            
+            data = data_transforms.make_template_mask(data) # needed for template to not get deleted by feature_pipeline
+
+            # process all_chain_features
+            data = self.feature_pipeline.process_features(data,
+                                                        mode=self.mode,
+                                                        is_multimer=True)
+
+            # if it's inference mode, only need all_chain_features
+            data["batch_idx"] = torch.tensor(
+                [idx for _ in range(data["aatype"].shape[-1])],
+                dtype=torch.int64,
+                device=data["aatype"].device)
+            
+            return data
         
-        data = data_transforms.make_template_mask(data) # needed for template to not get deleted by feature_pipeline
-
-        # process all_chain_features
-        data = self.feature_pipeline.process_features(data,
-                                                      mode=self.mode,
-                                                      is_multimer=True)
-
-        # if it's inference mode, only need all_chain_features
-        data["batch_idx"] = torch.tensor(
-            [idx for _ in range(data["aatype"].shape[-1])],
-            dtype=torch.int64,
-            device=data["aatype"].device)
-        
-        return data
+        except Exception as e:
+            if self.mode == 'train' or self.mode == 'val':
+                new_idx = torch.randint(0, len(self.data_index), (1,)).item()
+                logger.warning(f"Error loading {struct_id}: {e}, trying to replace with {self.data_index.iloc[new_idx]['id']}")
+                return self[new_idx]
+            else:
+                logger.error(f"Error loading {struct_id}: {e}")
+                raise e
 
     def __len__(self):
         return len(self.data_index)
