@@ -3,6 +3,7 @@ import math
 import torch
 from torch import nn
 from openfold.model.primitives import Linear, LayerNorm
+from openfold.utils.tensor_utils import add
 from AF2Dock.model.primitives import LayerNormNoBias
 from AF2Dock.model.transition import Transition, PreLayerNorm
 
@@ -66,12 +67,12 @@ class PairConditioning(nn.Module):
 
         normed_fourier = self.norm_fourier(fourier_embed)
 
-        fourier_to_single = self.fourier_to_pair(normed_fourier)
+        fourier_to_pair = self.fourier_to_pair(normed_fourier)
 
-        pair_cond = fourier_to_single.unsqueeze(-2) + pair_cond #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
+        pair_cond = add(pair_cond, fourier_to_pair.unsqueeze(-2).unsqueeze(-2)) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
 
         for transition in self.transitions:
-            pair_cond = transition(pair_cond) + pair_cond
+            pair_cond = add(pair_cond, transition(pair_cond))
 
         return pair_cond
 
