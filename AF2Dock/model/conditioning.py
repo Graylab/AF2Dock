@@ -69,7 +69,7 @@ class PairConditioning(nn.Module):
 
         fourier_to_pair = self.fourier_to_pair(normed_fourier)
 
-        pair_cond = add(pair_cond, fourier_to_pair.unsqueeze(-2).unsqueeze(-2)) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
+        pair_cond = add(pair_cond, fourier_to_pair[..., None, None, :]) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
 
         for transition in self.transitions:
             pair_cond = add(pair_cond, transition(pair_cond))
