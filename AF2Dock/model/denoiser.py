@@ -147,6 +147,7 @@ class RigidDenoiserStackBlock(nn.Module):
     def tri_att_start_end(self,
                           single: torch.Tensor,
                           cond: torch.Tensor,
+                          padding_mask: torch.Tensor,
                           inter_chain_mask: torch.Tensor,
                           _attn_chunk_size: Optional[int],
                           use_deepspeed_evo_attention: bool,
@@ -157,6 +158,7 @@ class RigidDenoiserStackBlock(nn.Module):
                          self.tri_att_start(
                              single,
                              cond,
+                             mask=padding_mask,
                              chunk_size=_attn_chunk_size,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                              use_lma=use_lma,
@@ -171,6 +173,7 @@ class RigidDenoiserStackBlock(nn.Module):
                          self.tri_att_end(
                              single,
                              cond,
+                             mask=padding_mask,
                              chunk_size=_attn_chunk_size,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                              use_lma=use_lma,
@@ -184,11 +187,12 @@ class RigidDenoiserStackBlock(nn.Module):
 
     def tri_mul_out_in(self,
                        single: torch.Tensor,
+                       padding_mask: torch.Tensor,
                        inter_chain_mask: torch.Tensor,
                        inplace_safe: bool):
         tmu_update = self.tri_mul_out(
             single,
-            mask=None,
+            mask=padding_mask,
             inplace_safe=inplace_safe,
             _add_with_inplace=False,
         )
@@ -202,7 +206,7 @@ class RigidDenoiserStackBlock(nn.Module):
 
         tmu_update = self.tri_mul_in(
             single,
-            mask=None,
+            mask=padding_mask,
             inplace_safe=inplace_safe,
             _add_with_inplace=False,
         )
@@ -219,6 +223,7 @@ class RigidDenoiserStackBlock(nn.Module):
     def forward(self,
                 z: torch.Tensor,
                 cond: torch.Tensor,
+                padding_mask: torch.Tensor,
                 inter_chain_mask: torch.Tensor,
                 chunk_size: Optional[int] = None,
                 use_deepspeed_evo_attention: bool = False,
@@ -232,9 +237,11 @@ class RigidDenoiserStackBlock(nn.Module):
         single = z
 
         single = self.tri_att_start_end(single=self.tri_mul_out_in(single=single,
+                                                                   padding_mask=padding_mask,
                                                                    inter_chain_mask=inter_chain_mask,
                                                                    inplace_safe=inplace_safe),
                                         cond=cond,
+                                        padding_mask=padding_mask,
                                         inter_chain_mask=inter_chain_mask,
                                         _attn_chunk_size=_attn_chunk_size,
                                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -324,6 +331,7 @@ class RigidDenoiserStack(nn.Module):
         self,
         t: torch.tensor,
         cond: torch.tensor,
+        padding_mask: torch.tensor,
         inter_chain_mask: torch.tensor,
         chunk_size: int,
         use_deepspeed_evo_attention: bool = False,
@@ -340,15 +348,12 @@ class RigidDenoiserStack(nn.Module):
         Returns:
             [*, N_templ, N_res, N_res, C_t] template embedding update
         """
-        if mask.shape[-3] == 1:
-            expand_idx = list(mask.shape)
-            expand_idx[-3] = t.shape[-4]
-            mask = mask.expand(*expand_idx)
 
         blocks = [
             partial(
                 b,
                 cond=cond,
+                padding_mask=padding_mask,
                 inter_chain_mask=inter_chain_mask,
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -468,7 +473,7 @@ class RigidDenoiser(nn.Module):
     def forward(self, 
         batch, 
         z, 
-        padding_mask_2d, 
+        padding_mask, 
         templ_dim,
         chunk_size,
         interchain_mask_2d,
@@ -528,7 +533,7 @@ class RigidDenoiser(nn.Module):
         # [*, S_t, N, N, C_z]
         tp = self.template_pair_stack(
             pair_act, 
-            padding_mask_2d.unsqueeze(-3).to(dtype=z.dtype), 
+            padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
