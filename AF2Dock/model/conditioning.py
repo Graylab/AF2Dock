@@ -29,18 +29,16 @@ class PairConditioning(nn.Module):
 
     def __init__(
         self,
-        sigma_data: float,
-        dim_pair = 128,
-        dim_fourier = 128,
-        num_transitions = 2,
-        transition_expansion_factor = 2,
+        dim_pair = 64,
+        dim_fourier = 256,
+        # num_transitions = 2,
+        # transition_expansion_factor = 2,
         eps = 1e-20
     ):
         super().__init__()
         self.eps = eps
 
         self.dim_pair = dim_pair
-        self.sigma_data = sigma_data
 
         self.norm_pair = LayerNorm(dim_pair)
 
@@ -48,17 +46,18 @@ class PairConditioning(nn.Module):
         self.norm_fourier = LayerNorm(dim_fourier)
         self.fourier_to_pair = Linear(dim_fourier, dim_pair, bias=False)
 
-        transitions = nn.ModuleList([])
-        for _ in range(num_transitions):
-            transition = PreLayerNorm(Transition(dim = dim_pair, expansion_factor = transition_expansion_factor), dim = dim_pair)
-            transitions.append(transition)
+        # transitions = nn.ModuleList([])
+        # for _ in range(num_transitions):
+        #     transition = PreLayerNorm(Transition(dim = dim_pair, expansion_factor = transition_expansion_factor), dim = dim_pair)
+        #     transitions.append(transition)
 
-        self.transitions = transitions
+        # self.transitions = transitions
 
     def forward(
         self,
         times,
         pair_cond,
+        # chunk_size = None,
     ):
 
         pair_cond = self.norm_pair(pair_cond)
@@ -71,8 +70,8 @@ class PairConditioning(nn.Module):
 
         pair_cond = add(pair_cond, fourier_to_pair[..., None, None, :]) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
 
-        for transition in self.transitions:
-            pair_cond = add(pair_cond, transition(pair_cond))
+        # for transition in self.transitions:
+        #     pair_cond = add(pair_cond, transition(pair_cond, chunk_size=chunk_size))
 
         return pair_cond
 

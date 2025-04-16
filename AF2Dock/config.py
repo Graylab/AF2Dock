@@ -1063,7 +1063,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "c_esm": 1152
             },
             "template_pair_stack": {
-                "c_t": c_t * 2,
+                "c_t": c_t,
                 # DISCREPANCY: c_hidden_tri_att here is given in the supplement
                 # as 64. In the code, it's 16.
                 "c_hidden_tri_att": 16,
@@ -1072,31 +1072,35 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "no_heads": 4,
                 "pair_transition_n": 2,
                 "dropout_rate": 0.25,
-                "tri_mul_first": False,
-                "fuse_projection_weights": False,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "tune_chunk_size": tune_chunk_size,
                 "inf": 1e9,
                 "tri_mul_first": True,
                 "fuse_projection_weights": True
             },
+            "pair_conditioning": {
+                "dim_pair": c_t,
+                "dim_fourier": 256,
+                # "num_transitions": 2,
+                # "transition_expansion_factor": 2,
+                "eps": 1e-20
+            },
             "rigid_denoiser_stack": {
-                "c_t": c_z,
+                "c_r": c_z,
+                "c_cond": c_t,
                 "c_hidden_tri_att": 32,
                 "c_hidden_tri_mul": 128,
                 "no_blocks": 6,
                 "no_heads": 4,
                 "pair_transition_n": 2,
                 "dropout_rate": 0.25,
-                "tri_mul_first": False,
-                "fuse_projection_weights": False,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "tune_chunk_size": tune_chunk_size,
                 "inf": 1e9,
-                "tri_mul_first": True,
                 "fuse_projection_weights": True
             },
             "c_t": c_t,
+            "c_r": c_z,
             "c_z": c_z,
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,

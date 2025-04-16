@@ -85,7 +85,6 @@ class PreLayerNorm(nn.Module):
     def __init__(
         self,
         fn,
-        *,
         dim,
     ):
         super().__init__()

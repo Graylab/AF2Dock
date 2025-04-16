@@ -122,6 +122,7 @@ class AF2Dock(nn.Module):
             k: v for k, v in feats.items() if k.startswith("template_")
         }
         template_feats["esm_embedding"] = feats["esm_embedding"]
+        template_feats["times"] = feats["t"]
 
         template_pair_embed = self.embed_templates(
             template_feats,

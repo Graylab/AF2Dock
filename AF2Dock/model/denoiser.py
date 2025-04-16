@@ -17,30 +17,20 @@ from functools import partial
 
 import torch
 import torch.nn as nn
-import math
-import sys
-from typing import Optional, List
-from typing import Tuple, Optional
+from typing import Optional
 
 from openfold.utils import all_atom_multimer
 from openfold.utils.feats import (
     pseudo_beta_fn,
     dgram_from_positions,
-    build_template_angle_feat,
-    build_template_pair_feat,
 )
-from openfold.model.primitives import Linear, LayerNorm, Attention
+from openfold.model.primitives import Linear, LayerNorm
 from openfold.utils import geometry
-from openfold.utils.tensor_utils import add, one_hot, tensor_tree_map, dict_multimap
+from openfold.utils.tensor_utils import add, tensor_tree_map
 
 from openfold.model.dropout import (
     DropoutRowwise,
     DropoutColumnwise,
-)
-from openfold.model.pair_transition import PairTransition
-from openfold.model.triangular_attention import (
-    TriangleAttentionStartingNode,
-    TriangleAttentionEndingNode,
 )
 from openfold.model.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
@@ -48,31 +38,21 @@ from openfold.model.triangular_multiplicative_update import (
     FusedTriangleMultiplicationOutgoing,
     FusedTriangleMultiplicationIncoming
 )
+from openfold.model.template import TemplatePairStack
 from openfold.utils.checkpointing import checkpoint_blocks
-from openfold.utils.chunk_utils import (
-    chunk_layer,
-    ChunkSizeTuner,
-)
-from openfold.utils.feats import (
-    build_template_angle_feat,
-    build_template_pair_feat,
-)
-from openfold.utils.tensor_utils import (
-    add,
-    permute_final_dims,
-    tensor_tree_map,
-)
+from openfold.utils.chunk_utils import ChunkSizeTuner
+
 from AF2Dock.model.triangular import (
     ConditionedTriangleAttentionStartingNode,
     ConditionedTriangleAttentionEndingNode,
 )
 from AF2Dock.model.transition import Transition
-from AF2Dock.model.conditioning import ConditionWrapper
+from AF2Dock.model.conditioning import ConditionWrapper, PairConditioning
 
 class RigidDenoiserStackBlock(nn.Module):
     def __init__(
         self,
-        c_t: int,
+        c_r: int,
         c_cond: int,
         c_hidden_tri_att: int,
         c_hidden_tri_mul: int,
@@ -86,7 +66,7 @@ class RigidDenoiserStackBlock(nn.Module):
     ):
         super(RigidDenoiserStackBlock, self).__init__()
 
-        self.c_t = c_t
+        self.c_r = c_r
         self.c_cond = c_cond
         self.c_hidden_tri_att = c_hidden_tri_att
         self.c_hidden_tri_mul = c_hidden_tri_mul
@@ -100,14 +80,14 @@ class RigidDenoiserStackBlock(nn.Module):
         self.dropout_col = DropoutColumnwise(self.dropout_rate)
 
         self.tri_att_start = ConditionedTriangleAttentionStartingNode(
-            self.c_t,
+            self.c_r,
             self.c_cond,
             self.c_hidden_tri_att,
             self.no_heads,
             inf=inf,
         )
         self.tri_att_end = ConditionedTriangleAttentionEndingNode(
-            self.c_t,
+            self.c_r,
             self.c_cond,
             self.c_hidden_tri_att,
             self.no_heads,
@@ -116,30 +96,30 @@ class RigidDenoiserStackBlock(nn.Module):
 
         if fuse_projection_weights:
             self.tri_mul_out = FusedTriangleMultiplicationOutgoing(
-                self.c_t,
+                self.c_r,
                 self.c_hidden_tri_mul,
             )
             self.tri_mul_in = FusedTriangleMultiplicationIncoming(
-                self.c_t,
+                self.c_r,
                 self.c_hidden_tri_mul,
             )
         else:
             self.tri_mul_out = TriangleMultiplicationOutgoing(
-                self.c_t,
+                self.c_r,
                 self.c_hidden_tri_mul,
             )
             self.tri_mul_in = TriangleMultiplicationIncoming(
-                self.c_t,
+                self.c_r,
                 self.c_hidden_tri_mul,
             )
 
         transition = Transition(
-            self.c_t,
+            self.c_r,
             self.pair_transition_n,
         )
         self.conditioned_transition = ConditionWrapper(
             transition,
-            self.c_t,
+            self.c_r,
             self.c_cond,
             adaln_zero_bias_init_value = -2.
         )
@@ -267,7 +247,7 @@ class RigidDenoiserStack(nn.Module):
 
     def __init__(
         self,
-        c_t,
+        c_r,
         c_cond,
         c_hidden_tri_att,
         c_hidden_tri_mul,
@@ -307,7 +287,7 @@ class RigidDenoiserStack(nn.Module):
         self.blocks = nn.ModuleList()
         for _ in range(no_blocks):
             block = RigidDenoiserStackBlock(
-                c_t=c_t,
+                c_r=c_r,
                 c_cond=c_cond,
                 c_hidden_tri_att=c_hidden_tri_att,
                 c_hidden_tri_mul=c_hidden_tri_mul,
@@ -320,7 +300,7 @@ class RigidDenoiserStack(nn.Module):
             )
             self.blocks.append(block)
 
-        self.layer_norm = LayerNorm(c_t)
+        self.layer_norm = LayerNorm(c_r)
 
         self.tune_chunk_size = tune_chunk_size
         self.chunk_size_tuner = None
@@ -464,11 +444,21 @@ class RigidDenoiser(nn.Module):
         self.template_pair_stack = TemplatePairStack(
             **config["template_pair_stack"],
         )
+        self.pair_conditioning = PairConditioning(
+            **config["pair_conditioning"],
+        )
+        self.pair_conditioning_stack = TemplatePairStack(
+            **config["template_pair_stack"],
+        )
         self.rigid_denoiser_stack = RigidDenoiserStack(
             **config["rigid_denoiser_stack"],
         )
 
-        self.linear_tp = Linear(config.c_t, config.c_z)
+        self.linear_tp = Linear(config.c_t, config.c_r)
+
+        self.linear_cond = Linear(config.c_t, config.c_t)
+
+        self.linear_final = Linear(config.c_r, config.c_z)
     
     def forward(self, 
         batch, 
@@ -485,6 +475,7 @@ class RigidDenoiser(nn.Module):
         
         idx = batch["template_aatype"].new_tensor(0)
         esm_embedding = batch.pop("esm_embedding")
+        times = batch.pop("times")
         single_template_feats = tensor_tree_map(
             lambda t: torch.index_select(t, templ_dim, idx),
             batch,
@@ -529,10 +520,11 @@ class RigidDenoiser(nn.Module):
             esm_embedding,
             inplace_safe,
         )
+        tp, cond = pair_act.chunk(2, dim=-1)
 
         # [*, S_t, N, N, C_z]
         tp = self.template_pair_stack(
-            pair_act, 
+            pair_act.unsqueeze(-3),
             padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -541,7 +533,40 @@ class RigidDenoiser(nn.Module):
             _mask_trans=_mask_trans,
         )
         # [*, N, N, C_z]
+        tp = tp.squeeze(-3)
         tp = torch.nn.functional.relu(tp)
         tp = self.linear_tp(tp)
+
+        cond = self.pair_conditioning(
+            times,
+            cond,
+        )
+        cond = self.pair_conditioning_stack(
+            cond.unsqueeze(-3),
+            padding_mask.unsqueeze(-3).to(dtype=z.dtype),
+            chunk_size=chunk_size,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_lma=use_lma,
+            inplace_safe=inplace_safe,
+        )
+        # [*, N, N, C_z]
+        cond = cond.squeeze(-3)
+        cond = torch.nn.functional.relu(cond)
+        cond = self.linear_cond(cond)
+
+        tp = self.rigid_denoiser_stack(
+            tp,
+            cond,
+            padding_mask=padding_mask,
+            inter_chain_mask=interchain_mask_2d,
+            chunk_size=chunk_size,
+            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_lma=use_lma,
+            inplace_safe=inplace_safe,
+        )
+
+        del cond
+
+        tp = self.linear_final(tp)
 
         return tp
