@@ -415,7 +415,6 @@ class TemplatePairEmbedderMultimer(nn.Module):
         query_embedding: torch.Tensor,
         pseudo_beta_mask: torch.Tensor,
         backbone_mask: torch.Tensor,
-        multichain_mask_2d: torch.Tensor,
         unit_vector: geometry.Vec3Array,
         esm_embedding: torch.Tensor,
         inplace_safe: bool = False,
@@ -425,12 +424,7 @@ class TemplatePairEmbedderMultimer(nn.Module):
         pseudo_beta_mask_2d = (
             pseudo_beta_mask[..., None] * pseudo_beta_mask[..., None, :]
         )
-        pseudo_beta_mask_2d *= multichain_mask_2d
-        backbone_mask_2d = (
-            backbone_mask[..., None] * backbone_mask[..., None, :]
-        )
-        backbone_mask_2d *= multichain_mask_2d
-        template_dgram *= backbone_mask_2d[..., None]
+        template_dgram *= pseudo_beta_mask_2d[..., None]
         act = add(act, self.dgram_linear(template_dgram), inplace_safe)
         act = add(act, self.pseudo_beta_mask_linear(pseudo_beta_mask_2d[..., None]), inplace_safe)
        
@@ -438,6 +432,9 @@ class TemplatePairEmbedderMultimer(nn.Module):
         act = add(act, self.aatype_linear_1(aatype_one_hot[..., None, :, :]), inplace_safe)
         act = add(act, self.aatype_linear_2(aatype_one_hot[..., None, :]), inplace_safe)
 
+        backbone_mask_2d = (
+            backbone_mask[..., None] * backbone_mask[..., None, :]
+        )
         x, y, z = [(coord * backbone_mask_2d).to(dtype=query_embedding.dtype) for coord in unit_vector]
         act = add(act, self.x_linear(x[..., None]), inplace_safe)
         act = add(act, self.y_linear(y[..., None]), inplace_safe)
@@ -473,7 +470,7 @@ class RigidDenoiser(nn.Module):
         padding_mask_2d, 
         templ_dim,
         chunk_size,
-        multichain_mask_2d,
+        interchain_mask_2d,
         _mask_trans=True,
         use_deepspeed_evo_attention=False,
         use_lma=False,
@@ -522,7 +519,6 @@ class RigidDenoiser(nn.Module):
             z,
             pseudo_beta_mask,
             backbone_mask,
-            multichain_mask_2d,
             unit_vector,
             esm_embedding,
             inplace_safe,

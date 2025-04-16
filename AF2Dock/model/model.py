@@ -70,8 +70,8 @@ class AF2Dock(nn.Module):
 
     def embed_templates(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
         asym_id = feats["asym_id"]
-        multichain_mask_2d = (
-            asym_id[..., None] == asym_id[..., None, :]
+        interchain_mask_2d = (
+            asym_id[..., None] != asym_id[..., None, :]
         )
         template_pair_embed = self.template_embedder(
             batch,
@@ -79,7 +79,7 @@ class AF2Dock(nn.Module):
             pair_mask.to(dtype=z.dtype),
             templ_dim,
             chunk_size=self.globals.chunk_size,
-            multichain_mask_2d=multichain_mask_2d,
+            interchain_mask_2d=interchain_mask_2d,
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
             use_lma=self.globals.use_lma,
             inplace_safe=inplace_safe,
