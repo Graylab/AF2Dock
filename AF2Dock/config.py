@@ -1057,18 +1057,34 @@ AF2Dock_config_update = mlc.ConfigDict({
             },
             "template_pair_embedder": {
                 "c_in": c_z,
-                "c_out": c_t,
+                "c_out": c_t * 2,
                 "c_dgram": 39,
                 "c_aatype": 22,
                 "c_esm": 1152
             },
-            "rigid_denoiser_stack": {
-                "c_t": c_t,
+            "template_pair_stack": {
+                "c_t": c_t * 2,
                 # DISCREPANCY: c_hidden_tri_att here is given in the supplement
                 # as 64. In the code, it's 16.
                 "c_hidden_tri_att": 16,
                 "c_hidden_tri_mul": 64,
                 "no_blocks": 2,
+                "no_heads": 4,
+                "pair_transition_n": 2,
+                "dropout_rate": 0.25,
+                "tri_mul_first": False,
+                "fuse_projection_weights": False,
+                "blocks_per_ckpt": blocks_per_ckpt,
+                "tune_chunk_size": tune_chunk_size,
+                "inf": 1e9,
+                "tri_mul_first": True,
+                "fuse_projection_weights": True
+            },
+            "rigid_denoiser_stack": {
+                "c_t": c_z,
+                "c_hidden_tri_att": 32,
+                "c_hidden_tri_mul": 128,
+                "no_blocks": 6,
                 "no_heads": 4,
                 "pair_transition_n": 2,
                 "dropout_rate": 0.25,

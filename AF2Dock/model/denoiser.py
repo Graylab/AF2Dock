@@ -62,11 +62,18 @@ from openfold.utils.tensor_utils import (
     permute_final_dims,
     tensor_tree_map,
 )
+from AF2Dock.model.triangular import (
+    ConditionedTriangleAttentionStartingNode,
+    ConditionedTriangleAttentionEndingNode,
+)
+from AF2Dock.model.transition import Transition
+from AF2Dock.model.conditioning import ConditionWrapper
 
-class TemplatePairStackBlock(nn.Module):
+class RigidDenoiserStackBlock(nn.Module):
     def __init__(
         self,
         c_t: int,
+        c_cond: int,
         c_hidden_tri_att: int,
         c_hidden_tri_mul: int,
         no_heads: int,
@@ -77,9 +84,10 @@ class TemplatePairStackBlock(nn.Module):
         inf: float,
         **kwargs,
     ):
-        super(TemplatePairStackBlock, self).__init__()
+        super(RigidDenoiserStackBlock, self).__init__()
 
         self.c_t = c_t
+        self.c_cond = c_cond
         self.c_hidden_tri_att = c_hidden_tri_att
         self.c_hidden_tri_mul = c_hidden_tri_mul
         self.no_heads = no_heads
@@ -91,14 +99,16 @@ class TemplatePairStackBlock(nn.Module):
         self.dropout_row = DropoutRowwise(self.dropout_rate)
         self.dropout_col = DropoutColumnwise(self.dropout_rate)
 
-        self.tri_att_start = TriangleAttentionStartingNode(
+        self.tri_att_start = ConditionedTriangleAttentionStartingNode(
             self.c_t,
+            self.c_cond,
             self.c_hidden_tri_att,
             self.no_heads,
             inf=inf,
         )
-        self.tri_att_end = TriangleAttentionEndingNode(
+        self.tri_att_end = ConditionedTriangleAttentionEndingNode(
             self.c_t,
+            self.c_cond,
             self.c_hidden_tri_att,
             self.no_heads,
             inf=inf,
@@ -123,15 +133,22 @@ class TemplatePairStackBlock(nn.Module):
                 self.c_hidden_tri_mul,
             )
 
-        self.pair_transition = PairTransition(
+        transition = Transition(
             self.c_t,
             self.pair_transition_n,
+        )
+        self.conditioned_transition = ConditionWrapper(
+            transition,
+            self.c_t,
+            self.c_cond,
+            adaln_zero_bias_init_value = -2.
         )
 
     def tri_att_start_end(self,
                           single: torch.Tensor,
+                          cond: torch.Tensor,
+                          inter_chain_mask: torch.Tensor,
                           _attn_chunk_size: Optional[int],
-                          single_mask: torch.Tensor,
                           use_deepspeed_evo_attention: bool,
                           use_lma: bool,
                           inplace_safe: bool):
@@ -139,13 +156,13 @@ class TemplatePairStackBlock(nn.Module):
                      self.dropout_row(
                          self.tri_att_start(
                              single,
+                             cond,
                              chunk_size=_attn_chunk_size,
-                             mask=single_mask,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                              use_lma=use_lma,
                              inplace_safe=inplace_safe,
                          )
-                     ),
+                     ) * inter_chain_mask[..., None],
                      inplace_safe,
                      )
 
@@ -153,13 +170,13 @@ class TemplatePairStackBlock(nn.Module):
                      self.dropout_col(
                          self.tri_att_end(
                              single,
+                             cond,
                              chunk_size=_attn_chunk_size,
-                             mask=single_mask,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                              use_lma=use_lma,
                              inplace_safe=inplace_safe,
                          )
-                     ),
+                     ) * inter_chain_mask[..., None],
                      inplace_safe,
                      )
 
@@ -167,31 +184,33 @@ class TemplatePairStackBlock(nn.Module):
 
     def tri_mul_out_in(self,
                        single: torch.Tensor,
-                       single_mask: torch.Tensor,
+                       inter_chain_mask: torch.Tensor,
                        inplace_safe: bool):
         tmu_update = self.tri_mul_out(
             single,
-            mask=single_mask,
+            mask=None,
             inplace_safe=inplace_safe,
-            _add_with_inplace=True,
+            _add_with_inplace=False,
         )
+        tmu_update = tmu_update * inter_chain_mask[..., None]
         if not inplace_safe:
             single = single + self.dropout_row(tmu_update)
         else:
-            single = tmu_update
+            single += tmu_update
 
         del tmu_update
 
         tmu_update = self.tri_mul_in(
             single,
-            mask=single_mask,
+            mask=None,
             inplace_safe=inplace_safe,
-            _add_with_inplace=True,
+            _add_with_inplace=False,
         )
+        tmu_update = tmu_update * inter_chain_mask[..., None]
         if not inplace_safe:
             single = single + self.dropout_row(tmu_update)
         else:
-            single = tmu_update
+            single += tmu_update
 
         del tmu_update
 
@@ -199,67 +218,42 @@ class TemplatePairStackBlock(nn.Module):
 
     def forward(self,
                 z: torch.Tensor,
-                mask: torch.Tensor,
+                cond: torch.Tensor,
+                inter_chain_mask: torch.Tensor,
                 chunk_size: Optional[int] = None,
                 use_deepspeed_evo_attention: bool = False,
                 use_lma: bool = False,
                 inplace_safe: bool = False,
-                _mask_trans: bool = True,
                 _attn_chunk_size: Optional[int] = None,
                 ):
         if _attn_chunk_size is None:
             _attn_chunk_size = chunk_size
 
-        single_templates = [
-            t.unsqueeze(-4) for t in torch.unbind(z, dim=-4)
-        ]
-        single_templates_masks = [
-            m.unsqueeze(-3) for m in torch.unbind(mask, dim=-3)
-        ]
+        single = z
 
-        for i in range(len(single_templates)):
-            single = single_templates[i]
-            single_mask = single_templates_masks[i]
+        single = self.tri_att_start_end(single=self.tri_mul_out_in(single=single,
+                                                                   inter_chain_mask=inter_chain_mask,
+                                                                   inplace_safe=inplace_safe),
+                                        cond=cond,
+                                        inter_chain_mask=inter_chain_mask,
+                                        _attn_chunk_size=_attn_chunk_size,
+                                        use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                                        use_lma=use_lma,
+                                        inplace_safe=inplace_safe)
 
-            if self.tri_mul_first:
-                single = self.tri_att_start_end(single=self.tri_mul_out_in(single=single,
-                                                                           single_mask=single_mask,
-                                                                           inplace_safe=inplace_safe),
-                                                _attn_chunk_size=_attn_chunk_size,
-                                                single_mask=single_mask,
-                                                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                                                use_lma=use_lma,
-                                                inplace_safe=inplace_safe)
-            else:
-                single = self.tri_mul_out_in(
-                    single=self.tri_att_start_end(single=single,
-                                                  _attn_chunk_size=_attn_chunk_size,
-                                                  single_mask=single_mask,
-                                                  use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                                                  use_lma=use_lma,
-                                                  inplace_safe=inplace_safe),
-                    single_mask=single_mask,
-                    inplace_safe=inplace_safe)
+        single = add(single,
+                     self.conditioned_transition(
+                         single,
+                         cond,
+                         chunk_size=chunk_size,
+                         ) * inter_chain_mask[..., None],
+                     inplace_safe,
+                    )
 
-            single = add(single,
-                         self.pair_transition(
-                             single,
-                             mask=single_mask if _mask_trans else None,
-                             chunk_size=chunk_size,
-                         ),
-                         inplace_safe,
-                         )
-
-            if not inplace_safe:
-                single_templates[i] = single
-
-        if not inplace_safe:
-            z = torch.cat(single_templates, dim=-4)
-
-        return z
+        return single
 
 
-class TemplatePairStack(nn.Module):
+class RigidDenoiserStack(nn.Module):
     """
     Implements Algorithm 16.
     """
@@ -267,6 +261,7 @@ class TemplatePairStack(nn.Module):
     def __init__(
         self,
         c_t,
+        c_cond,
         c_hidden_tri_att,
         c_hidden_tri_mul,
         no_blocks,
@@ -298,14 +293,15 @@ class TemplatePairStack(nn.Module):
                 Number of blocks per activation checkpoint. None disables
                 activation checkpointing
         """
-        super(TemplatePairStack, self).__init__()
+        super(RigidDenoiserStack, self).__init__()
 
         self.blocks_per_ckpt = blocks_per_ckpt
 
         self.blocks = nn.ModuleList()
         for _ in range(no_blocks):
-            block = TemplatePairStackBlock(
+            block = RigidDenoiserStackBlock(
                 c_t=c_t,
+                c_cond=c_cond,
                 c_hidden_tri_att=c_hidden_tri_att,
                 c_hidden_tri_mul=c_hidden_tri_mul,
                 no_heads=no_heads,
@@ -327,7 +323,8 @@ class TemplatePairStack(nn.Module):
     def forward(
         self,
         t: torch.tensor,
-        mask: torch.tensor,
+        cond: torch.tensor,
+        inter_chain_mask: torch.tensor,
         chunk_size: int,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
@@ -351,7 +348,8 @@ class TemplatePairStack(nn.Module):
         blocks = [
             partial(
                 b,
-                mask=mask,
+                cond=cond,
+                inter_chain_mask=inter_chain_mask,
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
@@ -459,6 +457,9 @@ class RigidDenoiser(nn.Module):
             **config["template_pair_embedder"],
         )
         self.template_pair_stack = TemplatePairStack(
+            **config["template_pair_stack"],
+        )
+        self.rigid_denoiser_stack = RigidDenoiserStack(
             **config["rigid_denoiser_stack"],
         )
 
