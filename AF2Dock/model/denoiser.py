@@ -458,7 +458,7 @@ class RigidDenoiser(nn.Module):
 
         self.linear_cond = Linear(config.c_t, config.c_t)
 
-        self.linear_final = Linear(config.c_r, config.c_z)
+        self.linear_final = Linear(config.c_r, config.c_z, init='final')
     
     def forward(self, 
         batch, 
@@ -548,6 +548,7 @@ class RigidDenoiser(nn.Module):
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe,
+            _mask_trans=_mask_trans,
         )
         # [*, N, N, C_z]
         cond = cond.squeeze(-3)

@@ -19,10 +19,7 @@ import torch.nn as nn
 from openfold.utils.feats import (
     atom14_to_atom37,
 )
-from openfold.model.embedders import (
-    InputEmbedderMultimer,
-    TemplateEmbedderMultimer,
-)
+from openfold.model.embedders import InputEmbedderMultimer
 from openfold.model.evoformer import EvoformerStack
 from openfold.model.heads import AuxiliaryHeads
 from openfold.model.structure_module import StructureModule
@@ -33,6 +30,7 @@ from openfold.utils.tensor_utils import (
     add,
     tensor_tree_map,
 )
+from AF2Dock.model.denoiser import RigidDenoiser
 
 class AF2Dock(nn.Module):
 
@@ -46,14 +44,15 @@ class AF2Dock(nn.Module):
 
         self.globals = config.globals
         self.config = config.model
+        self.rigid_denoiser_config = self.config.rigid_denoiser
 
         # Main trunk + structure module
         self.input_embedder = InputEmbedderMultimer(
             **self.config["input_embedder"]
         )
 
-        self.template_embedder = TemplateEmbedderMultimer(
-            self.template_config,
+        self.rigid_denoiser = RigidDenoiser(
+            self.rigid_denoiser_config,
         )
 
         self.evoformer = EvoformerStack(
@@ -68,12 +67,12 @@ class AF2Dock(nn.Module):
             self.config["heads"],
         )
 
-    def embed_templates(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
+    def rigid_denoise_ini_struct(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
         asym_id = feats["asym_id"]
         inter_chain_mask = (
             asym_id[..., None] != asym_id[..., None, :]
         ) * pair_mask
-        template_pair_embed = self.template_embedder(
+        denoised_pair_update = self.rigid_denoiser(
             batch,
             z,
             pair_mask.to(dtype=z.dtype),
@@ -86,7 +85,7 @@ class AF2Dock(nn.Module):
             _mask_trans=self.config._mask_trans
         )
 
-        return template_pair_embed
+        return denoised_pair_update
 
     def iteration(self, feats):
         # Primary output dictionary
@@ -117,14 +116,14 @@ class AF2Dock(nn.Module):
         # z: [*, N, N, C_z]
         m, z = self.input_embedder(feats)
 
-        # Embed the templates + merge with MSA/pair embeddings
+        # rigid denoise the initial configurations
         template_feats = {
             k: v for k, v in feats.items() if k.startswith("template_")
         }
         template_feats["esm_embedding"] = feats["esm_embedding"]
         template_feats["times"] = feats["t"]
 
-        template_pair_embed = self.embed_templates(
+        denoised_pair_update = self.rigid_denoise_ini_struct(
             template_feats,
             feats,
             z,
@@ -135,7 +134,7 @@ class AF2Dock(nn.Module):
 
         # [*, N, N, C_z]
         z = add(z,
-                template_pair_embed,
+                denoised_pair_update,
                 inplace_safe,
                 )
 
