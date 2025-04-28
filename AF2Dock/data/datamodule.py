@@ -20,7 +20,7 @@ from pinder.data.plot.performance import get_subsampled_train
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from AF2Dock.data import of_data
-from AF2Dock.utils import utils
+from AF2Dock.AF2Dock.utils import data_utils
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +62,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
             chain_meta = get_supplementary_data("chain_metadata")
             if mode == "train":
                 train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
-                train_index = utils.prefilter(train_index,
-                                              get_metadata(),
-                                              entity_meta,
-                                              chain_meta)
+                train_index = data_utils.prefilter(train_index,
+                                                   get_metadata(),
+                                                   entity_meta,
+                                                   chain_meta)
                 if pinder_entity_seq_cluster_pkl is not None:
                     entity_seq_cluster = pd.read_pickle(pinder_entity_seq_cluster_pkl)
                     train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -79,7 +79,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                     right_on='part_id',
                                                     how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
                     train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
-                    self.data_index = utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
+                    self.data_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
                 else:
                     self.data_index = get_subsampled_train(train_index)
             elif mode == "eval":
@@ -167,9 +167,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             part_resi_split.append('')
                     if len(part_resi_split) != len(part_seqres):
                         # e.g. 8hco chain G, fall back to sequence in structure
-                        part_seqres, part_resi_split = utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
+                        part_seqres, part_resi_split = data_utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
                     assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
-                    part_seq, part_resi_resolved = utils.truncate_to_resolved(part_seqres, part_resi_split)
+                    part_seq, part_resi_resolved = data_utils.truncate_to_resolved(part_seqres, part_resi_split)
                     part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                                 part_resi_resolved,
                                                                                                 getattr(ps, f'native_{abbr}').atom_array)
@@ -217,7 +217,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                         tr_0, rot_0 = self.get_rigid_body_noise_at_0(self.config.rigid_body.tr_sigma, self.config.rigid_body.rot_sigma)
                         tr_t = tr_0 * (1. - t)
                         rot_t = rot_0 * (1. - t)
-                        part_t_all_atom_positions = utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
+                        part_t_all_atom_positions = data_utils.apply_rigid_body_transform_atom37(part_t_all_atom_positions,
                                                                                             part_t_all_atom_mask,
                                                                                             residue_constants.atom_order["CA"],
                                                                                             tr_t,
