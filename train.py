@@ -475,8 +475,12 @@ if __name__ == "__main__":
                 if not on rank 0'''
     )
     parser.add_argument(
-        "--cached_esm_embedding_folder", type=str,
+        "--cached_esm_embedding_folder", type=str, default=None,
         help="Directory with cached ESM embeddings."
+    )
+    parser.add_argument(
+        "--pinder_entity_seq_cluster_pkl", type=str, default=None,
+        help="Path to the pinder entity seq cluster pkl file."
     )
     parser.add_argument(
         "--seed", type=int, default=None,

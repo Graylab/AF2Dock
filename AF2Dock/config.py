@@ -1086,10 +1086,10 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "eps": 1e-20
             },
             "rigid_denoiser_stack": {
-                "c_r": c_z,
+                "c_r": c_t,
                 "c_cond": c_t,
-                "c_hidden_tri_att": 32,
-                "c_hidden_tri_mul": 128,
+                "c_hidden_tri_att": 16,
+                "c_hidden_tri_mul": 64,
                 "no_blocks": 6,
                 "no_heads": 4,
                 "pair_transition_n": 2,
@@ -1100,7 +1100,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "fuse_projection_weights": True
             },
             "c_t": c_t,
-            "c_r": c_z,
+            "c_r": c_t,
             "c_z": c_z,
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,

@@ -60,6 +60,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
             full_index = get_index()
             entity_meta = get_supplementary_data("entity_metadata")
             chain_meta = get_supplementary_data("chain_metadata")
+            supp_meta = get_supplementary_data("supplementary_metadata")
             if mode == "train":
                 train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
                 train_index = data_utils.prefilter(train_index,
@@ -98,6 +99,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
             self.data_index = self.data_index.merge(chain_meta[['id', 'resi_auth_R', 'resi_auth_L']],
                                                     on='id',
                                                     how='left')
+            self.data_index = self.data_index.merge(supp_meta[['id', 'chain_1_residues', 'chain_2_residues']],
+                                                    on='id',
+                                                    how='left').rename(columns={'chain_1_residues': 'chain_R_residues',
+                                                                                'chain_2_residues': 'chain_L_residues'})
             self.data_index = self.data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
@@ -169,10 +174,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
                         # e.g. 8hco chain G, fall back to sequence in structure
                         part_seqres, part_resi_split = data_utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
                     assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
-                    part_seq, part_resi_resolved = data_utils.truncate_to_resolved(part_seqres, part_resi_split)
+                    part_seq, part_resi_is_resolved = data_utils.truncate_to_resolved(part_seqres, part_resi_split)
                     part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
-                                                                                                part_resi_resolved,
-                                                                                                getattr(ps, f'native_{abbr}').atom_array)
+                                                                                                 part_resi_is_resolved,
+                                                                                                 getattr(ps, f'native_{abbr}').atom_array)
                     part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
                     part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
                     assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
@@ -185,7 +190,15 @@ class AF2DockDataset(torch.utils.data.Dataset):
                         part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
                         part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
                         
-                        if len(part_ini_to_holo_map) / len(part_seq) > 0.8:
+                        part_interface_resi = index_entry[f'chain_{abbr}_residues']
+                        part_interface_resi_split = part_interface_resi.split(',')
+                        part_pinder_resi = list(range(1, len(part_resi_split) + 1))
+                        resolved_part_pinder_resi, _ = data_utils.truncate_to_resolved(part_pinder_resi, part_resi_split)
+                        part_interface_resi_idx = [resolved_part_pinder_resi.index(int(resi)) 
+                                                   for resi in part_interface_resi_split if int(resi) in resolved_part_pinder_resi]
+                        part_interface_resi_idx_mapped = [idx for idx in part_interface_resi_idx if idx in part_ini_to_holo_map.values()]
+                        
+                        if len(part_interface_resi_idx_mapped) / len(part_interface_resi_split) > 0.5:
                             part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
                             part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
@@ -203,6 +216,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             part_ini_overlapped_atom_array = part_ini_struct.atom_array[indexes_to_keep]
                             part_ini_all_atom_positions, part_ini_all_atom_mask = of_data.get_atom_coords_pinder(part_seq, part_ini_resi_resolved, part_ini_overlapped_atom_array)
                         else:
+                            logger.info(f"{struct_id} {full_n} {part_id} {part_cate} does not have enough interface residues, using holo structure")
                             part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
                     else:
                         part_ini_all_atom_positions, part_ini_all_atom_mask = part_all_atom_positions, part_all_atom_mask
@@ -284,6 +298,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  training_mode,
                  batch_seed,
                  cached_esm_embedding_folder: str = None,
+                 pinder_entity_seq_cluster_pkl: str = None,
                  **kwargs):
         super().__init__()
 
@@ -291,12 +306,14 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.batch_seed = batch_seed
         self.training_mode = training_mode
         self.cached_esm_embedding_folder = cached_esm_embedding_folder
+        self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
 
     def setup(self, setup=None):
         # Most of the arguments are the same for the three datasets 
         dataset_gen = partial(AF2DockDataset,
+                              config=self.config,
                               cached_esm_embedding_folder=self.cached_esm_embedding_folder,
-                              config=self.config)
+                              pinder_entity_seq_cluster_pkl=self.pinder_entity_seq_cluster_pkl)
 
         if self.training_mode:
             self.train_dataset = dataset_gen(mode="train")
