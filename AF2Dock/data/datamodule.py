@@ -20,7 +20,7 @@ from pinder.data.plot.performance import get_subsampled_train
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 from AF2Dock.data import of_data
-from AF2Dock.AF2Dock.utils import data_utils
+from AF2Dock.utils import data_utils
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                            part_resi_resolved = part_resi_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            part_resi_is_resolved = part_resi_is_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             
                             part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]

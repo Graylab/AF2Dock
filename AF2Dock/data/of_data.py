@@ -185,7 +185,6 @@ class DataPipelineMultimer:
             chain_id: str,
             sequence: str,
             description: str,
-            is_homomer_or_monomer: bool
     ) -> FeatureDict:
         """Runs the pipeline on a single chain."""
 
@@ -194,9 +193,9 @@ class DataPipelineMultimer:
             input_description=description,
         )
 
-        if not is_homomer_or_monomer:
-            all_seq_msa_features = self._all_seq_msa_features_dummy(sequence, chain_id)
-            chain_features.update(all_seq_msa_features)
+        all_seq_msa_features = self._all_seq_msa_features_dummy(sequence, chain_id)
+        chain_features.update(all_seq_msa_features)
+        
         return chain_features
 
     @staticmethod
@@ -227,7 +226,6 @@ class DataPipelineMultimer:
                 chain_id=desc,
                 sequence=seq,
                 description=desc,
-                is_homomer_or_monomer=is_homomer_or_monomer
             )
 
             chain_features.update(struct_feats_at_t_dict[desc])
@@ -264,7 +262,6 @@ class DataPipelineMultimer:
                 chain_id=desc,
                 sequence=seq,
                 description=desc,
-                is_homomer_or_monomer=is_homomer_or_monomer
             )
 
             chain_features.update(struct_feats_at_t_dict[desc])

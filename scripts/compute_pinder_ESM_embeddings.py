@@ -14,7 +14,7 @@ from esm.sdk.api import ESMProtein, LogitsConfig
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from AF2Dock.AF2Dock.utils import data_utils
+from AF2Dock.utils import data_utils
 
 logger = logging.getLogger(__name__)
 
