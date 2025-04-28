@@ -433,7 +433,8 @@ def main(args):
         wdb_logger.experiment.save(f"{freeze_path}")
 
     trainer_kws = ['num_nodes', 'precision', 'max_epochs', 'log_every_n_steps', 'check_val_every_n_epoch',
-                   'flush_logs_ever_n_steps', 'num_sanity_val_steps', 'accumulate_grad_batches']
+                   'flush_logs_ever_n_steps', 'num_sanity_val_steps', 'accumulate_grad_batches',
+                   'limit_val_batches']
     trainer_args = {k: v for k, v in vars(args).items() if k in trainer_kws}
     trainer_args.update({
         'default_root_dir': args.output_dir,
@@ -573,6 +574,10 @@ if __name__ == "__main__":
 
     trainer_group.add_argument(
         "--check_val_every_n_epoch", type=float, default=0.25,
+    )
+
+    trainer_group.add_argument(
+        "--limit_val_batches", type=float, default=0.1,
     )
 
     args = parser.parse_args()
