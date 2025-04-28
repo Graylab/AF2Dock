@@ -21,7 +21,6 @@ import json
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
-from pytorch_lightning.callbacks import DeviceStatsMonitor
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DDPStrategy, DeepSpeedStrategy
@@ -32,14 +31,8 @@ import wandb
 from deepspeed.utils import zero_to_fp32 
 
 from openfold.config import model_config
-from openfold.data.data_modules import OpenFoldDataModule, OpenFoldMultimerDataModule
-from openfold.model.model import AlphaFold
 from openfold.model.torchscript import script_preset_
 from openfold.np import residue_constants
-from openfold.utils.argparse_utils import remove_arguments
-from openfold.utils.callbacks import (
-    EarlyStoppingVerbose,
-)
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import AlphaFoldLoss, lddt_ca
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
