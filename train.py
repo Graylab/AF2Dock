@@ -51,18 +51,18 @@ from openfold.utils.validation_metrics import (
     gdt_ts,
     gdt_ha,
 )
-from openfold.utils.import_weights import (
-    import_jax_weights_,
-    import_openfold_weights_
-)
+from openfold.utils.import_weights import import_openfold_weights_
 from openfold.utils.logger import PerformanceLoggingCallback
 
+from AF2Dock.utils import train_utils
+from AF2Dock.model.model import AF2Dock
+from AF2Dock.data.datamodule import AF2DockDataModule
 
-class OpenFoldWrapper(pl.LightningModule):
+class AF2DockWrapper(pl.LightningModule):
     def __init__(self, config):
-        super(OpenFoldWrapper, self).__init__()
+        super(AF2DockWrapper, self).__init__()
         self.config = config
-        self.model = AlphaFold(config)
+        self.model = AF2Dock(config)
         self.is_multimer = self.config.globals.is_multimer
 
         self.loss = AlphaFoldLoss(config.loss)
@@ -278,7 +278,7 @@ class OpenFoldWrapper(pl.LightningModule):
                 )
         )[0]
         model_version = "_".join(model_basename.split("_")[1:])
-        import_jax_weights_(
+        train_utils.import_jax_weights_(
                 self.model, jax_path, version=model_version
         )
 
@@ -303,16 +303,16 @@ def main(args):
         "bf16-mixed", "16", "bf16", "16-true", "16-mixed", "bf16-mixed"]
 
     config = model_config(
-        args.config_preset, 
         train=True, 
         low_prec=is_low_precision,
+        use_deepspeed_evo_attention=args.deepspeed_config_path is not None,
     ) 
     if args.experiment_config_json: 
         with open(args.experiment_config_json, 'r') as f:
             custom_config_dict = json.load(f)
         config.update_from_flattened_dict(custom_config_dict)
 
-    model_module = OpenFoldWrapper(config)
+    model_module = AF2DockWrapper(config)
 
     if args.resume_from_ckpt:
         if args.resume_model_weights_only:
@@ -347,47 +347,34 @@ def main(args):
     if args.resume_from_jax_params:
         model_module.load_from_jax(args.resume_from_jax_params)
         logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
+    
+    if args.freeze_af_params:
+        ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
+        for k, v in ori_param_dict.items():
+            v.requires_grad = False
+        logging.info("Train with frozen AlphaFold parameters")
  
     # TorchScript components of the model
     if(args.script_modules):
         script_preset_(model_module)
-
-    if "multimer" in args.config_preset:
-        data_module = OpenFoldMultimerDataModule(
+        
+    data_module = AF2DockDataModule(
         config=config.data, 
         batch_seed=args.seed,
         **vars(args)
     )
-    else:
-        data_module = OpenFoldDataModule(
-            config=config.data, 
-            batch_seed=args.seed,
-            **vars(args)
-        )
 
     data_module.prepare_data()
     data_module.setup()
     
     callbacks = []
-    if(args.checkpoint_every_epoch):
+    if(args.checkpoint_every_val_check):
         mc = ModelCheckpoint(
-            every_n_epochs=1,
+            monitor="val/loss",
             auto_insert_metric_name=False,
             save_top_k=-1,
         )
         callbacks.append(mc)
-
-    if(args.early_stopping):
-        es = EarlyStoppingVerbose(
-            monitor="val/lddt_ca",
-            min_delta=args.min_delta,
-            patience=args.patience,
-            verbose=False,
-            mode="max",
-            check_finite=True,
-            strict=True,
-        )
-        callbacks.append(es)
 
     if(args.log_performance):
         global_batch_size = args.num_nodes * args.gpus
@@ -445,8 +432,8 @@ def main(args):
         os.system(f"{sys.executable} -m pip freeze > {freeze_path}")
         wdb_logger.experiment.save(f"{freeze_path}")
 
-    trainer_kws = ['num_nodes', 'precision', 'max_epochs', 'log_every_n_steps',
-                   'flush_logs_ever_n_steps', 'num_sanity_val_steps', 'reload_dataloaders_every_n_epochs']
+    trainer_kws = ['num_nodes', 'precision', 'max_epochs', 'log_every_n_steps', 'check_val_every_n_epoch',
+                   'flush_logs_ever_n_steps', 'num_sanity_val_steps', 'accumulate_grad_batches']
     trainer_args = {k: v for k, v in vars(args).items() if k in trainer_kws}
     trainer_args.update({
         'default_root_dir': args.output_dir,
@@ -482,82 +469,13 @@ def bool_type(bool_str: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "train_data_dir", type=str,
-        help="Directory containing training mmCIF files"
-    )
-    parser.add_argument(
-        "train_alignment_dir", type=str,
-        help="Directory containing precomputed training alignments"
-    )
-    parser.add_argument(
-        "template_mmcif_dir", type=str,
-        help="Directory containing mmCIF files to search for templates"
-    )
-    parser.add_argument(
         "output_dir", type=str,
         help='''Directory in which to output checkpoints, logs, etc. Ignored
                 if not on rank 0'''
     )
     parser.add_argument(
-        "max_template_date", type=str,
-        help='''Cutoff for all templates. In training mode, templates are also 
-                filtered by the release date of the target'''
-    )
-    parser.add_argument(
-        "--train_mmcif_data_cache_path", type=str, default=None,
-        help="Path to the json file which records all the information of mmcif structures used during training"
-    )
-    parser.add_argument(
-        "--use_single_seq_mode", type=str, default=False,
-        help="Use single sequence embeddings instead of MSAs."
-    )
-    parser.add_argument(
-        "--distillation_data_dir", type=str, default=None,
-        help="Directory containing training PDB files"
-    )
-    parser.add_argument(
-        "--distillation_alignment_dir", type=str, default=None,
-        help="Directory containing precomputed distillation alignments"
-    )
-    parser.add_argument(
-        "--val_data_dir", type=str, default=None,
-        help="Directory containing validation mmCIF files"
-    )
-    parser.add_argument(
-        "--val_alignment_dir", type=str, default=None,
-        help="Directory containing precomputed validation alignments"
-    )
-    parser.add_argument(
-        "--val_mmcif_data_cache_path", type=str, default=None,
-        help="path to the json file which records all the information of mmcif structures used during validation"
-    )
-    parser.add_argument(
-        "--kalign_binary_path", type=str, default='/usr/bin/kalign',
-        help="Path to the kalign binary"
-    )
-    parser.add_argument(
-        "--train_filter_path", type=str, default=None,
-        help='''Optional path to a text file containing names of training
-                examples to include, one per line. Used to filter the training 
-                set'''
-    )
-    parser.add_argument(
-        "--distillation_filter_path", type=str, default=None,
-        help="""See --train_filter_path"""
-    )
-    parser.add_argument(
-        "--obsolete_pdbs_file_path", type=str, default=None,
-        help="""Path to obsolete.dat file containing list of obsolete PDBs and 
-             their replacements."""
-    )
-    parser.add_argument(
-        "--template_release_dates_cache_path", type=str, default=None,
-        help="""Output of scripts/generate_mmcif_cache.py run on template mmCIF
-                files."""
-    )
-    parser.add_argument(
-        "--use_small_bfd", type=bool_type, default=False,
-        help="Whether to use a reduced version of the BFD database"
+        "--cached_esm_embedding_folder", type=str,
+        help="Directory with cached ESM embeddings."
     )
     parser.add_argument(
         "--seed", type=int, default=None,
@@ -568,21 +486,8 @@ if __name__ == "__main__":
         help="Path to DeepSpeed config. If not provided, DeepSpeed is disabled"
     )
     parser.add_argument(
-        "--checkpoint_every_epoch", action="store_true", default=False,
+        "--checkpoint_every_val_check", action="store_true", default=False,
         help="""Whether to checkpoint at the end of every training epoch"""
-    )
-    parser.add_argument(
-        "--early_stopping", type=bool_type, default=False,
-        help="Whether to stop training when validation loss fails to decrease"
-    )
-    parser.add_argument(
-        "--min_delta", type=float, default=0,
-        help="""The smallest decrease in validation loss that counts as an 
-                improvement for the purposes of early stopping"""
-    )
-    parser.add_argument(
-        "--patience", type=int, default=3,
-        help="Early stopping patience"
     )
     parser.add_argument(
         "--resume_from_ckpt", type=str, default=None,
@@ -595,6 +500,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--resume_from_jax_params", type=str, default=None,
         help="""Path to an .npz JAX parameter file with which to initialize the model"""
+    )
+    parser.add_argument(
+        "--freeze_af_params", action=bool_type, default=True,
+        help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
     )
     parser.add_argument(
         "--log_performance", type=bool_type, default=False,
@@ -625,42 +534,8 @@ if __name__ == "__main__":
         help="Whether to TorchScript eligible components of them model"
     )
     parser.add_argument(
-        "--train_chain_data_cache_path", type=str, default=None,
-    )
-    parser.add_argument(
-        "--distillation_chain_data_cache_path", type=str, default=None,
-    )
-    parser.add_argument(
-        "--train_epoch_len", type=int, default=10000,
-        help=(
-            "The virtual length of each training epoch. Stochastic filtering "
-            "of training data means that training datasets have no "
-            "well-defined length. This virtual length affects frequency of "
-            "validation & checkpointing (by default, one of each per epoch)."
-        )
-    )
-    parser.add_argument(
         "--log_lr", action="store_true", default=False,
         help="Whether to log the actual learning rate"
-    )
-    parser.add_argument(
-        "--config_preset", type=str, default="initial_training",
-        help=(
-            'Config setting. Choose e.g. "initial_training", "finetuning", '
-            '"model_1", etc. By default, the actual values in the config are '
-            'used.'
-        )
-    )
-    parser.add_argument(
-        "--_distillation_structure_index_path", type=str, default=None,
-    )
-    parser.add_argument(
-        "--alignment_index_path", type=str, default=None,
-        help="Training alignment index. See the README for instructions."
-    )
-    parser.add_argument(
-        "--distillation_alignment_index_path", type=str, default=None,
-        help="Distillation alignment index. See the README for instructions."
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
@@ -692,12 +567,13 @@ if __name__ == "__main__":
     trainer_group.add_argument(
         "--num_sanity_val_steps", type=int, default=0,
     )
-    trainer_group.add_argument(
-        "--reload_dataloaders_every_n_epochs", type=int, default=1,
-    )
 
-    trainer_group.add_argument("--accumulate_grad_batches", type=int, default=1,
+    trainer_group.add_argument("--accumulate_grad_batches", type=int, default=4,
                                help="Accumulate gradients over k batches before next optimizer step.")
+
+    trainer_group.add_argument(
+        "--check_val_every_n_epoch", type=float, default=0.25,
+    )
 
     args = parser.parse_args()
 

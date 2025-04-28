@@ -74,7 +74,7 @@ def enforce_config_constraints(config):
 
 
 def model_config(
-    name, 
+    # name, 
     train=False, 
     low_prec=False, 
     long_sequence_inference=False,
@@ -229,16 +229,16 @@ def model_config(
     #     c.model.evoformer_stack.fuse_projection_weights = False
     #     c.model.extra_msa.extra_msa_stack.fuse_projection_weights = False
     #     c.model.template.template_pair_stack.fuse_projection_weights = False
-    if name == 'model_4_multimer_v3':
-        #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
-        c.data.train.max_extra_msa = 1152
-        c.data.eval.max_extra_msa = 1152
-        c.data.predict.max_extra_msa = 1152
-    elif name == 'model_5_multimer_v3':
-        #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
-        c.data.train.max_extra_msa = 1152
-        c.data.eval.max_extra_msa = 1152
-        c.data.predict.max_extra_msa = 1152
+    # if name == 'model_4_multimer_v3':
+    #     #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+    #     c.data.train.max_extra_msa = 1152
+    #     c.data.eval.max_extra_msa = 1152
+    #     c.data.predict.max_extra_msa = 1152
+    # elif name == 'model_5_multimer_v3':
+    #     #c.model.extra_msa.extra_msa_embedder.num_extra_msa = 1152
+    #     c.data.train.max_extra_msa = 1152
+    #     c.data.eval.max_extra_msa = 1152
+    #     c.data.predict.max_extra_msa = 1152
     # else:
     #     raise ValueError("Invalid model name")
 
