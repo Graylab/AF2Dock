@@ -120,8 +120,8 @@ class AF2Dock(nn.Module):
         template_feats = {
             k: v for k, v in feats.items() if k.startswith("template_")
         }
-        template_feats["esm_embedding"] = feats["esm_embedding"]
-        template_feats["times"] = feats["t"]
+        template_feats["esm_embedding"] = feats["esm_embedding"].unsqueeze(no_batch_dims)
+        template_feats["times"] = feats["t"].unsqueeze(no_batch_dims)
 
         denoised_pair_update = self.rigid_denoise_ini_struct(
             template_feats,
