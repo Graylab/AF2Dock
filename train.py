@@ -265,14 +265,8 @@ class AF2DockWrapper(pl.LightningModule):
         self.last_lr_step = lr_step
 
     def load_from_jax(self, jax_path):
-        model_basename = os.path.splitext(
-                os.path.basename(
-                    os.path.normpath(jax_path)
-                )
-        )[0]
-        model_version = "_".join(model_basename.split("_")[1:])
         train_utils.import_jax_weights_(
-                self.model, jax_path, version=model_version
+                self.model, jax_path
         )
 
 def get_model_state_dict_from_ds_checkpoint(checkpoint_dir):

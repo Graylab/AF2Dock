@@ -277,9 +277,6 @@ def generate_translation_dict(model):
                 model.aux_heads.experimentally_resolved.linear
             ),
         },
-        "masked_msa_head": {
-            "logits": LinearParams(model.aux_heads.masked_msa.linear),
-        },
     }
 
     translations["predicted_aligned_error_head"] = {
