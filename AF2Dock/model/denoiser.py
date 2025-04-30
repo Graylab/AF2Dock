@@ -59,7 +59,6 @@ class RigidDenoiserStackBlock(nn.Module):
         no_heads: int,
         pair_transition_n: int,
         dropout_rate: float,
-        tri_mul_first: bool,
         fuse_projection_weights: bool,
         inf: float,
         **kwargs,
@@ -74,7 +73,6 @@ class RigidDenoiserStackBlock(nn.Module):
         self.pair_transition_n = pair_transition_n
         self.dropout_rate = dropout_rate
         self.inf = inf
-        self.tri_mul_first = tri_mul_first
 
         self.dropout_row = DropoutRowwise(self.dropout_rate)
         self.dropout_col = DropoutColumnwise(self.dropout_rate)
@@ -255,7 +253,6 @@ class RigidDenoiserStack(nn.Module):
         no_heads,
         pair_transition_n,
         dropout_rate,
-        tri_mul_first,
         fuse_projection_weights,
         blocks_per_ckpt,
         tune_chunk_size: bool = False,
@@ -294,7 +291,6 @@ class RigidDenoiserStack(nn.Module):
                 no_heads=no_heads,
                 pair_transition_n=pair_transition_n,
                 dropout_rate=dropout_rate,
-                tri_mul_first=tri_mul_first,
                 fuse_projection_weights=fuse_projection_weights,
                 inf=inf,
             )
@@ -317,7 +313,6 @@ class RigidDenoiserStack(nn.Module):
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
-        _mask_trans: bool = True,
     ):
         """
         Args:
@@ -339,7 +334,6 @@ class RigidDenoiserStack(nn.Module):
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
-                _mask_trans=_mask_trans,
             )
             for b in self.blocks
         ]
@@ -524,7 +518,7 @@ class RigidDenoiser(nn.Module):
 
         # [*, S_t, N, N, C_z]
         tp = self.template_pair_stack(
-            pair_act.unsqueeze(-3),
+            tp,
             padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -533,16 +527,16 @@ class RigidDenoiser(nn.Module):
             _mask_trans=_mask_trans,
         )
         # [*, N, N, C_z]
-        tp = tp.squeeze(-3)
         tp = torch.nn.functional.relu(tp)
         tp = self.linear_tp(tp)
 
         cond = self.pair_conditioning(
             times,
             cond,
+            inplace_safe=inplace_safe,
         )
         cond = self.pair_conditioning_stack(
-            cond.unsqueeze(-3),
+            cond,
             padding_mask.unsqueeze(-3).to(dtype=z.dtype),
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -551,14 +545,13 @@ class RigidDenoiser(nn.Module):
             _mask_trans=_mask_trans,
         )
         # [*, N, N, C_z]
-        cond = cond.squeeze(-3)
         cond = torch.nn.functional.relu(cond)
         cond = self.linear_cond(cond)
 
         tp = self.rigid_denoiser_stack(
             tp,
             cond,
-            padding_mask=padding_mask,
+            padding_mask=padding_mask.unsqueeze(-3).to(dtype=z.dtype),
             inter_chain_mask=inter_chain_mask,
             chunk_size=chunk_size,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
@@ -569,5 +562,7 @@ class RigidDenoiser(nn.Module):
         del cond
 
         tp = self.linear_final(tp)
+        
+        tp = tp.squeeze(templ_dim)
 
         return tp

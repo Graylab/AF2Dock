@@ -1011,13 +1011,13 @@ AF2Dock_config_update = mlc.ConfigDict({
             ],
         },
         "predict": {
-            "max_msa_clusters": 1,
+            "max_msa_clusters": 17,
             "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1
         },
         "eval": {
-            "max_msa_clusters": 1,
+            "max_msa_clusters": 17,
             "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
@@ -1028,7 +1028,7 @@ AF2Dock_config_update = mlc.ConfigDict({
             }
         },
         "train": {
-            "max_msa_clusters": 1,
+            "max_msa_clusters": 17,
             "max_extra_msa": 1,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
@@ -1082,8 +1082,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "dim_pair": c_t,
                 "dim_fourier": 256,
                 # "num_transitions": 2,
-                # "transition_expansion_factor": 2,
-                "eps": 1e-20
+                # "transition_expansion_factor": 2
             },
             "rigid_denoiser_stack": {
                 "c_r": c_t,

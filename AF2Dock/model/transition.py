@@ -34,7 +34,6 @@ class SwiGLU(nn.Module):
 class Transition(nn.Module):
     def __init__(
         self,
-        *,
         dim,
         expansion_factor = 2
     ):

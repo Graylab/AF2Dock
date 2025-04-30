@@ -33,10 +33,8 @@ class PairConditioning(nn.Module):
         dim_fourier = 256,
         # num_transitions = 2,
         # transition_expansion_factor = 2,
-        eps = 1e-20
     ):
         super().__init__()
-        self.eps = eps
 
         self.dim_pair = dim_pair
 
@@ -58,17 +56,18 @@ class PairConditioning(nn.Module):
         times,
         pair_cond,
         # chunk_size = None,
+        inplace_safe = False
     ):
 
         pair_cond = self.norm_pair(pair_cond)
 
-        fourier_embed = self.fourier_embed(times, eps = self.eps)
+        fourier_embed = self.fourier_embed(times)
 
         normed_fourier = self.norm_fourier(fourier_embed)
 
         fourier_to_pair = self.fourier_to_pair(normed_fourier)
 
-        pair_cond = add(pair_cond, fourier_to_pair[..., None, None, :]) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
+        pair_cond = add(pair_cond, fourier_to_pair[..., None, None, :], inplace_safe) #rearrange(fourier_to_single, 'b d -> b 1 d') + single_repr
 
         # for transition in self.transitions:
         #     pair_cond = add(pair_cond, transition(pair_cond, chunk_size=chunk_size))

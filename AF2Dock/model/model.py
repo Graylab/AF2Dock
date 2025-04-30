@@ -21,7 +21,6 @@ from openfold.utils.feats import (
 )
 from openfold.model.embedders import InputEmbedderMultimer
 from openfold.model.evoformer import EvoformerStack
-from openfold.model.heads import AuxiliaryHeads
 from openfold.model.structure_module import StructureModule
 from openfold.utils.feats import (
     atom14_to_atom37,
@@ -31,6 +30,7 @@ from openfold.utils.tensor_utils import (
     tensor_tree_map,
 )
 from AF2Dock.model.denoiser import RigidDenoiser
+from AF2Dock.model.heads import AuxiliaryHeads
 
 class AF2Dock(nn.Module):
 
@@ -77,7 +77,7 @@ class AF2Dock(nn.Module):
             z,
             pair_mask.to(dtype=z.dtype),
             templ_dim,
-            chunk_size=self.globals.chunk_size,
+            chunk_size=self.globals.chunk_size if inplace_safe else None,
             inter_chain_mask=inter_chain_mask.to(dtype=z.dtype),
             use_deepspeed_evo_attention=self.globals.use_deepspeed_evo_attention,
             use_lma=self.globals.use_lma,

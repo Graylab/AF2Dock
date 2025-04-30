@@ -164,7 +164,7 @@ def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx,
     com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
     rot_t_mat = R.from_rotvec(rot).as_matrix()
     all_atom_positions = all_atom_positions - com
-    all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat)
+    all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat).astype(np.float32)
     all_atom_positions = all_atom_positions + com + tr
     all_atom_positions = all_atom_positions * all_atom_mask[..., None]
     return all_atom_positions
