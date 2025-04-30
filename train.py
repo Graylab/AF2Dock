@@ -34,7 +34,7 @@ from openfold.config import model_config
 from openfold.model.torchscript import script_preset_
 from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
-from openfold.utils.loss import AlphaFoldLoss, lddt_ca
+from openfold.utils.loss import lddt_ca
 from openfold.utils.lr_schedulers import AlphaFoldLRScheduler
 from openfold.utils.multi_chain_permutation import multi_chain_permutation_align
 from openfold.utils.superimposition import superimpose
@@ -50,6 +50,7 @@ from openfold.utils.logger import PerformanceLoggingCallback
 from AF2Dock.utils import train_utils
 from AF2Dock.model.model import AF2Dock
 from AF2Dock.data.datamodule import AF2DockDataModule
+from AF2Dock.utils.loss import AF2DockLoss
 
 class AF2DockWrapper(pl.LightningModule):
     def __init__(self, config):
@@ -58,7 +59,7 @@ class AF2DockWrapper(pl.LightningModule):
         self.model = AF2Dock(config)
         self.is_multimer = self.config.globals.is_multimer
 
-        self.loss = AlphaFoldLoss(config.loss)
+        self.loss = AF2DockLoss(config.loss)
 
         self.ema = ExponentialMovingAverage(
             model=self.model, decay=config.ema.decay
