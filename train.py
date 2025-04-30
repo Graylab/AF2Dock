@@ -269,6 +269,11 @@ class AF2DockWrapper(pl.LightningModule):
         train_utils.import_jax_weights_(
                 self.model, jax_path
         )
+        # Initialize the EMA weights
+        state_dict = self.model.state_dict()
+        with torch.no_grad():
+            for k in state_dict.keys():
+                self.ema.params[k] = state_dict[k].clone().detach()
 
 def get_model_state_dict_from_ds_checkpoint(checkpoint_dir):
     latest_path = os.path.join(checkpoint_dir, 'latest')

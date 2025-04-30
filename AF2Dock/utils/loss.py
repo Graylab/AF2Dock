@@ -53,6 +53,10 @@ class AF2DockLoss(nn.Module):
                 logits=out["distogram_logits"],
                 **{**batch, **self.config.distogram},
             ),
+            "experimentally_resolved": lambda: of_loss.experimentally_resolved_loss(
+                logits=out["experimentally_resolved_logits"],
+                **{**batch, **self.config.experimentally_resolved},
+            ),
             "fape": lambda: of_loss.fape_loss(
                 out,
                 batch,

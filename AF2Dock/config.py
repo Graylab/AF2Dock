@@ -663,10 +663,10 @@ config = mlc.ConfigDict(
                 #     "c_m": c_m,
                 #     "c_out": 23,
                 # },
-                # "experimentally_resolved": {
-                #     "c_s": c_s,
-                #     "c_out": 37,
-                # },
+                "experimentally_resolved": {
+                    "c_s": c_s,
+                    "c_out": 37,
+                },
             },
             # A negative value indicates that no early stopping will occur, i.e.
             # the model will always run `max_recycling_iters` number of recycling
@@ -690,12 +690,12 @@ config = mlc.ConfigDict(
                 "eps": eps,  # 1e-6,
                 "weight": 0.3,
             },
-            # "experimentally_resolved": {
-            #     "eps": eps,  # 1e-8,
-            #     "min_resolution": 0.1,
-            #     "max_resolution": 3.0,
-            #     "weight": 0.0,
-            # },
+            "experimentally_resolved": {
+                "eps": eps,  # 1e-8,
+                "min_resolution": 0.1,
+                "max_resolution": 3.0,
+                "weight": 0.0,
+            },
             "fape": {
                 # "backbone": {
                 #     "clamp_distance": 10.0,
@@ -1105,5 +1105,15 @@ AF2Dock_config_update = mlc.ConfigDict({
             "eps": eps,  # 1e-6,
         },
         "recycle_early_stop_tolerance": -1
-    }
+    },
+    "loss": {
+        "plddt_loss": {
+            "min_resolution": 0.1,
+            "max_resolution": 4.0,
+        },
+        "tm": {
+            "min_resolution": 0.1,
+            "max_resolution": 4.0,
+        },
+    } 
 })
