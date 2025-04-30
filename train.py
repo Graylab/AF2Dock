@@ -30,7 +30,6 @@ import torch
 import wandb
 from deepspeed.utils import zero_to_fp32 
 
-from openfold.config import model_config
 from openfold.model.torchscript import script_preset_
 from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
@@ -47,10 +46,11 @@ from openfold.utils.validation_metrics import (
 from openfold.utils.import_weights import import_openfold_weights_
 from openfold.utils.logger import PerformanceLoggingCallback
 
-from AF2Dock.utils import train_utils
+from AF2Dock.config import model_config
 from AF2Dock.model.model import AF2Dock
 from AF2Dock.data.datamodule import AF2DockDataModule
 from AF2Dock.utils.loss import AF2DockLoss
+from AF2Dock.utils import train_utils
 
 class AF2DockWrapper(pl.LightningModule):
     def __init__(self, config):
@@ -293,7 +293,7 @@ def main(args):
     config = model_config(
         train=True, 
         low_prec=is_low_precision,
-        use_deepspeed_evo_attention=args.deepspeed_config_path is not None,
+        use_deepspeed_evoformer_attention=args.deepspeed_config_path is not None,
     ) 
     if args.experiment_config_json: 
         with open(args.experiment_config_json, 'r') as f:
@@ -338,8 +338,7 @@ def main(args):
     
     if args.freeze_af_params:
         ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
-        for k, v in ori_param_dict.items():
-            v.requires_grad = False
+        train_utils.freeze_params(ori_param_dict)
         logging.info("Train with frozen AlphaFold parameters")
  
     # TorchScript components of the model
@@ -348,6 +347,7 @@ def main(args):
         
     data_module = AF2DockDataModule(
         config=config.data, 
+        training_mode=True,
         batch_seed=args.seed,
         **vars(args)
     )
@@ -500,7 +500,7 @@ if __name__ == "__main__":
         help="""Path to an .npz JAX parameter file with which to initialize the model"""
     )
     parser.add_argument(
-        "--freeze_af_params", action=bool_type, default=True,
+        "--freeze_af_params", type=bool_type, default=True,
         help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
     )
     parser.add_argument(

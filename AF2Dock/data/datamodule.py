@@ -308,7 +308,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.cached_esm_embedding_folder = cached_esm_embedding_folder
         self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
 
-    def setup(self, setup=None):
+    def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
         dataset_gen = partial(AF2DockDataset,
                               config=self.config,

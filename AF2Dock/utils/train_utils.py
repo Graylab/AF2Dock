@@ -14,7 +14,6 @@
 
 import numpy as np
 from functools import partial
-import numpy as np
 from openfold.utils import import_weights
 from openfold.utils.import_weights import Param, ParamType
 
@@ -310,3 +309,19 @@ def import_jax_weights_(model, npz_path):
 
     # Set weights
     import_weights.assign(flat, data)
+
+def freeze_params(params):
+    if isinstance(params, dict):
+        for k, v in params.items():
+            freeze_params(v)
+    elif isinstance(params, list):
+        for v in params:
+            freeze_params(v)
+    elif isinstance(params, Param):
+        if params.stacked:
+            for p in params.param:
+                p.requires_grad = False
+        else:
+            params.param.requires_grad = False
+    else:
+        raise ValueError("Unknown params input type: {}".format(type(params)))
