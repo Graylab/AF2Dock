@@ -23,7 +23,6 @@ from openfold.utils.loss import (
 from openfold.model.heads import (
     PerResidueLDDTCaPredictor,
     DistogramHead,
-    ExperimentallyResolvedHead,
     TMScoreHead,
 )
 
@@ -37,10 +36,6 @@ class AuxiliaryHeads(nn.Module):
 
         self.distogram = DistogramHead(
             **config["distogram"],
-        )
-
-        self.experimentally_resolved = ExperimentallyResolvedHead(
-            **config["experimentally_resolved"],
         )
 
         if config.tm.enabled:
@@ -60,13 +55,6 @@ class AuxiliaryHeads(nn.Module):
 
         distogram_logits = self.distogram(outputs["pair"])
         aux_out["distogram_logits"] = distogram_logits
-
-        experimentally_resolved_logits = self.experimentally_resolved(
-            outputs["single"]
-        )
-        aux_out[
-            "experimentally_resolved_logits"
-        ] = experimentally_resolved_logits
 
         if self.config.tm.enabled:
             tm_logits = self.tm(outputs["pair"])
