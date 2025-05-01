@@ -52,6 +52,8 @@ from AF2Dock.data.datamodule import AF2DockDataModule
 from AF2Dock.utils.loss import AF2DockLoss
 from AF2Dock.utils import train_utils
 
+logger = logging.getLogger(__name__)
+
 class AF2DockWrapper(pl.LightningModule):
     def __init__(self, config):
         super(AF2DockWrapper, self).__init__()

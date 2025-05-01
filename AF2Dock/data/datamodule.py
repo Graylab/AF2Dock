@@ -61,10 +61,11 @@ class AF2DockDataset(torch.utils.data.Dataset):
             entity_meta = get_supplementary_data("entity_metadata")
             chain_meta = get_supplementary_data("chain_metadata")
             supp_meta = get_supplementary_data("supplementary_metadata")
+            metadata = get_metadata()
             if mode == "train":
                 train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
                 train_index = data_utils.prefilter(train_index,
-                                                   get_metadata(),
+                                                   metadata,
                                                    entity_meta,
                                                    chain_meta)
                 if pinder_entity_seq_cluster_pkl is not None:
@@ -80,7 +81,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                     right_on='part_id',
                                                     how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
                     train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
-                    self.data_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
+                    self.data_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
                 else:
                     self.data_index = get_subsampled_train(train_index)
             elif mode == "eval":
@@ -103,6 +104,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                     on='id',
                                                     how='left').rename(columns={'chain_1_residues': 'chain_R_residues',
                                                                                 'chain_2_residues': 'chain_L_residues'})
+            self.data_index = self.data_index.merge(metadata[['id', 'resolution']],
+                                                    on='id',
+                                                    how='left')
             self.data_index = self.data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
@@ -262,6 +266,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 data["t"] = t
                 data["tr_0"] = tr_0
                 data["rot_0"] = rot_0
+                data["resolution"] = float(index_entry['resolution'])
 
             else:
                 raise NotImplementedError("Predict mode not implemented yet")
