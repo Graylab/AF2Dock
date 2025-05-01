@@ -109,7 +109,7 @@ def make_dummy_msa_feats(input_sequence, input_description) -> FeatureDict:
     msa_data_obj = make_dummy_msa_obj(input_sequence, input_description)
     return data_pipeline.make_msa_features([msa_data_obj])
 
-def merge_features(all_chain_features):
+def merge_features(all_chain_features, max_templates):
     # from https://github.com/sokrypton/ColabFold/blob/b119520d8f43e1547e1c4352fd090c59a8dbb369/colabfold/batch.py#L913C1-L952C1
     feature_processing_multimer.process_unmerged_features(all_chain_features)
     np_chains_list = list(all_chain_features.values())
@@ -135,7 +135,7 @@ def merge_features(all_chain_features):
         np_chains_list,
         msa_crop_size=feature_processing_multimer.MSA_CROP_SIZE,
         pair_msa_sequences=pair_msa_sequences,
-        max_templates=1,
+        max_templates=max_templates,
     )
     # merge_chain_features crashes if there are additional features only present in one chain
     # remove all features that are not present in all chains
@@ -147,7 +147,7 @@ def merge_features(all_chain_features):
     np_example = feature_processing_multimer.msa_pairing.merge_chain_features(
         np_chains_list=np_chains_list,
         pair_msa_sequences=pair_msa_sequences,
-        max_templates=1,
+        max_templates=max_templates,
     )
     np_example = feature_processing_multimer.process_final(np_example)
 
@@ -213,6 +213,7 @@ class DataPipelineMultimer:
     def process_fasta(self,
                       input_fasta_str: str,
                       struct_feats_at_t_dict,
+                      max_templates,
                       ) -> FeatureDict:
         """Creates features."""
 
@@ -238,7 +239,7 @@ class DataPipelineMultimer:
 
         all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
 
-        np_example = merge_features(all_chain_features)
+        np_example = merge_features(all_chain_features, max_templates)
 
         # Pad MSA to avoid zero-sized extra_msa.
         np_example = data_pipeline.pad_msa(np_example, 512)
@@ -251,6 +252,7 @@ class DataPipelineMultimer:
             all_atom_positions_dict,
             all_atom_mask_dict,
             struct_feats_at_t_dict,
+            max_templates,
     ) -> FeatureDict:
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
@@ -278,7 +280,7 @@ class DataPipelineMultimer:
 
         all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
 
-        np_example = merge_features(all_chain_features)
+        np_example = merge_features(all_chain_features, max_templates)
 
         # Pad MSA to avoid zero-sized extra_msa.
         np_example = data_pipeline.pad_msa(np_example, 512)

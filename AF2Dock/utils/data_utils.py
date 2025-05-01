@@ -162,9 +162,10 @@ def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta:
 
 def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx, tr, rot):
     com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
-    rot_t_mat = R.from_rotvec(rot).as_matrix()
-    all_atom_positions = all_atom_positions - com
-    all_atom_positions = np.einsum('...ij,kj->...ik', all_atom_positions, rot_t_mat).astype(np.float32)
-    all_atom_positions = all_atom_positions + com + tr
+    rot_t_mat = R.from_rotvec(rot).as_matrix().astype(np.float32)
+    rot_t_mat = rot_t_mat[:, None, ...]
+    all_atom_positions = all_atom_positions - com[:, None, None, :]
+    all_atom_positions = np.einsum('...ij,...kj->...ik', all_atom_positions, rot_t_mat)
+    all_atom_positions = all_atom_positions + com[:, None, None, :] + tr[:, None, None, ...]
     all_atom_positions = all_atom_positions * all_atom_mask[..., None]
     return all_atom_positions

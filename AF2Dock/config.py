@@ -977,9 +977,9 @@ AF2Dock_config_update = mlc.ConfigDict({
         "common": {
             "feat": {
                 "esm_embedding": [NUM_RES, None],
-                "t": [],
-                "tr_0": [None],
-                "rot_0": [None]
+                "t": [None, None],
+                "tr_0": [None, None],
+                "rot_0": [None, None]
             },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
@@ -1035,7 +1035,7 @@ AF2Dock_config_update = mlc.ConfigDict({
             "subsample_templates": False,
             "block_delete_msa" : False,
             "crop": True,
-            "crop_size": 640,
+            "crop_size": 384,
             "spatial_crop_prob": 1.0,
             "pinder_cate_prob": {
                 "holo": 0.7,
@@ -1045,6 +1045,7 @@ AF2Dock_config_update = mlc.ConfigDict({
         },
         "rigid_body": {
             "tr_sigma": 30.0,
+            "rot_prior": "uniform",
             "rot_sigma": 0.8
         }
     },
