@@ -67,6 +67,12 @@ def generate_translation_dict(model):
             "gating_b": LinearBiasMHA(att.linear_g.bias),
         },
     )
+    
+    GlobalAttentionParams = lambda att: dict(
+        AttentionGatedParams(att),
+        key_w=LinearWeight(att.linear_k.weight),
+        value_w=LinearWeight(att.linear_v.weight),
+    )
 
     TriAttParams = lambda tri_att: {
         "query_norm": LayerNormParams(tri_att.layer_norm),
@@ -106,6 +112,11 @@ def generate_translation_dict(model):
     MSAColAttParams = lambda matt: {
         "query_norm": LayerNormParams(matt._msa_att.layer_norm_m),
         "attention": AttentionGatedParams(matt._msa_att.mha),
+    }
+    
+    MSAGlobalAttParams = lambda matt: {
+        "query_norm": LayerNormParams(matt.layer_norm_m),
+        "attention": GlobalAttentionParams(matt.global_attention),
     }
 
     MSAAttPairBiasParams = lambda matt: dict(
@@ -168,9 +179,13 @@ def generate_translation_dict(model):
         "output_b": LinearBias(o.linear_out.bias),
     }
 
-    def EvoformerBlockParams(b):
-        col_att_name = "msa_column_attention"
-        msa_col_att_params = MSAColAttParams(b.msa_att_col)
+    def EvoformerBlockParams(b, is_extra_msa=False):
+        if is_extra_msa:
+            col_att_name = "msa_column_global_attention"
+            msa_col_att_params = MSAGlobalAttParams(b.msa_att_col)
+        else:
+            col_att_name = "msa_column_attention"
+            msa_col_att_params = MSAColAttParams(b.msa_att_col)
 
         d = {
             "msa_row_attention_with_pair_bias": MSAAttPairBiasParams(
@@ -194,6 +209,8 @@ def generate_translation_dict(model):
 
         return d
 
+    ExtraMSABlockParams = partial(EvoformerBlockParams, is_extra_msa=True)
+    
     def FoldIterationParams(sm):
         d = {
             "invariant_point_attention": 
@@ -231,6 +248,9 @@ def generate_translation_dict(model):
     ############################
     # translations dict overflow
     ############################
+    ems_blocks = model.extra_msa_stack.blocks
+    ems_blocks_params = import_weights.stacked([ExtraMSABlockParams(b) for b in ems_blocks])
+    
     evo_blocks = model.evoformer.blocks
     evo_blocks_params = import_weights.stacked([EvoformerBlockParams(b) for b in evo_blocks])
 
@@ -245,6 +265,10 @@ def generate_translation_dict(model):
                     model.input_embedder.linear_relpos
                 ),
             },
+            "extra_msa_activations": LinearParams(
+                model.extra_msa_embedder.linear
+            ),
+            "extra_msa_stack": ems_blocks_params,
             "evoformer_iteration": evo_blocks_params,
             "single_activations": LinearParams(model.evoformer.linear),
         },

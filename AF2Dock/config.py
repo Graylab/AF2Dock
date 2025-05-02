@@ -576,34 +576,34 @@ config = mlc.ConfigDict(
             #     # enabled if offload_inference is set.
             #     "offload_templates": False,
             # },
-            # "extra_msa": {
-            #     "extra_msa_embedder": {
-            #         "c_in": 25,
-            #         "c_out": c_e,
-            #     },
-            #     "extra_msa_stack": {
-            #         "c_m": c_e,
-            #         "c_z": c_z,
-            #         "c_hidden_msa_att": 8,
-            #         "c_hidden_opm": 32,
-            #         "c_hidden_mul": 128,
-            #         "c_hidden_pair_att": 32,
-            #         "no_heads_msa": 8,
-            #         "no_heads_pair": 4,
-            #         "no_blocks": 4,
-            #         "transition_n": 4,
-            #         "msa_dropout": 0.15,
-            #         "pair_dropout": 0.25,
-            #         "opm_first": False,
-            #         "fuse_projection_weights": False,
-            #         "clear_cache_between_blocks": False,
-            #         "tune_chunk_size": tune_chunk_size,
-            #         "inf": 1e9,
-            #         "eps": eps,  # 1e-10,
-            #         "ckpt": blocks_per_ckpt is not None,
-            #     },
-            #     "enabled": True,
-            # },
+            "extra_msa": {
+                "extra_msa_embedder": {
+                    "c_in": 25,
+                    "c_out": c_e,
+                },
+                "extra_msa_stack": {
+                    "c_m": c_e,
+                    "c_z": c_z,
+                    "c_hidden_msa_att": 8,
+                    "c_hidden_opm": 32,
+                    "c_hidden_mul": 128,
+                    "c_hidden_pair_att": 32,
+                    "no_heads_msa": 8,
+                    "no_heads_pair": 4,
+                    "no_blocks": 4,
+                    "transition_n": 4,
+                    "msa_dropout": 0.15,
+                    "pair_dropout": 0.25,
+                    "opm_first": False,
+                    "fuse_projection_weights": False,
+                    "clear_cache_between_blocks": False,
+                    "tune_chunk_size": tune_chunk_size,
+                    "inf": 1e9,
+                    "eps": eps,  # 1e-10,
+                    "ckpt": blocks_per_ckpt is not None,
+                },
+                "enabled": True,
+            },
             "evoformer_stack": {
                 "c_m": c_m,
                 "c_z": c_z,
@@ -878,15 +878,15 @@ multimer_config_update = mlc.ConfigDict({
         #     "c_z": c_z,
         #     "use_unit_vector": True
         # },
-        # "extra_msa": {
-        #     # "extra_msa_embedder": {
-        #     #     "num_extra_msa": 2048
-        #     # },
-        #     "extra_msa_stack": {
-        #         "opm_first": True,
-        #         "fuse_projection_weights": True
-        #     }
-        # },
+        "extra_msa": {
+            # "extra_msa_embedder": {
+            #     "num_extra_msa": 2048
+            # },
+            "extra_msa_stack": {
+                "opm_first": True,
+                "fuse_projection_weights": True
+            }
+        },
         "evoformer_stack": {
             "opm_first": True,
             "fuse_projection_weights": True
@@ -1012,13 +1012,13 @@ AF2Dock_config_update = mlc.ConfigDict({
         },
         "predict": {
             "max_msa_clusters": 17,
-            "max_extra_msa": 1,
+            "max_extra_msa": 17,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1
         },
         "eval": {
             "max_msa_clusters": 17,
-            "max_extra_msa": 1,
+            "max_extra_msa": 17,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
             "pinder_cate_prob": {
@@ -1029,7 +1029,7 @@ AF2Dock_config_update = mlc.ConfigDict({
         },
         "train": {
             "max_msa_clusters": 17,
-            "max_extra_msa": 1,
+            "max_extra_msa": 17,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
             "subsample_templates": False,
