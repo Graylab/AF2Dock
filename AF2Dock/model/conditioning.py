@@ -21,7 +21,7 @@ class FourierEmbedding(nn.Module):
         self,
         times,
     ):
-        times = times.unsqueeze(-1) #rearrange(times, 'b -> b 1')
+        times = times
         rand_proj = self.proj(times)
         return torch.cos(2 * math.pi * rand_proj)
 
