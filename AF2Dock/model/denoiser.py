@@ -466,103 +466,112 @@ class RigidDenoiser(nn.Module):
         use_lma=False,
         inplace_safe=False
     ):
+        full_pair_update = 0.0
         
-        idx = batch["template_aatype"].new_tensor(0)
+        n_templ = batch["template_aatype"].shape[templ_dim]
         esm_embedding = batch.pop("esm_embedding")
-        times = batch.pop("times")
-        single_template_feats = tensor_tree_map(
-            lambda t: torch.index_select(t, templ_dim, idx),
-            batch,
-        )
+        for i in range(n_templ):
+            idx = batch["template_aatype"].new_tensor(i)
+            times = batch.pop("times")
+            single_template_feats = tensor_tree_map(
+                lambda t: torch.index_select(t, templ_dim, idx),
+                batch,
+            )
 
-        template_positions, pseudo_beta_mask = pseudo_beta_fn(
-            single_template_feats["template_aatype"],
-            single_template_feats["template_all_atom_positions"],
-            single_template_feats["template_all_atom_mask"])
+            template_positions, pseudo_beta_mask = pseudo_beta_fn(
+                single_template_feats["template_aatype"],
+                single_template_feats["template_all_atom_positions"],
+                single_template_feats["template_all_atom_mask"])
 
-        template_dgram = dgram_from_positions(
-            template_positions,
-            inf=self.config.inf,
-            **self.config.distogram,
-        )
+            template_dgram = dgram_from_positions(
+                template_positions,
+                inf=self.config.inf,
+                **self.config.distogram,
+            )
 
-        aatype_one_hot = torch.nn.functional.one_hot(
-            single_template_feats["template_aatype"], 22,
-        )
+            aatype_one_hot = torch.nn.functional.one_hot(
+                single_template_feats["template_aatype"], 22,
+            )
+            
+            raw_atom_pos = single_template_feats["template_all_atom_positions"]
+
+            # Vec3Arrays are required to be float32
+            atom_pos = geometry.Vec3Array.from_array(raw_atom_pos.to(dtype=torch.float32))
+
+            rigid, backbone_mask = all_atom_multimer.make_backbone_affine(
+                atom_pos,
+                single_template_feats["template_all_atom_mask"],
+                single_template_feats["template_aatype"],
+            )
+            points = rigid.translation
+            rigid_vec = rigid[..., None].inverse().apply_to_point(points)
+            unit_vector = rigid_vec.normalized()
+
+            pair_act = self.template_pair_embedder(
+                template_dgram,
+                aatype_one_hot,
+                z,
+                pseudo_beta_mask,
+                backbone_mask,
+                unit_vector,
+                esm_embedding,
+                inplace_safe,
+            )
+            tp, cond = pair_act.chunk(2, dim=-1)
+
+            # [*, S_t, N, N, C_z]
+            tp = self.template_pair_stack(
+                tp,
+                padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
+                chunk_size=chunk_size,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_lma=use_lma,
+                inplace_safe=inplace_safe,
+                _mask_trans=_mask_trans,
+            )
+            # [*, N, N, C_z]
+            tp = torch.nn.functional.relu(tp)
+            tp = self.linear_tp(tp)
+
+            cond = self.pair_conditioning(
+                times,
+                cond,
+                inplace_safe=inplace_safe,
+            )
+            cond = self.pair_conditioning_stack(
+                cond,
+                padding_mask.unsqueeze(-3).to(dtype=z.dtype),
+                chunk_size=chunk_size,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_lma=use_lma,
+                inplace_safe=inplace_safe,
+                _mask_trans=_mask_trans,
+            )
+            # [*, N, N, C_z]
+            cond = torch.nn.functional.relu(cond)
+            cond = self.linear_cond(cond)
+
+            tp = self.rigid_denoiser_stack(
+                tp,
+                cond,
+                padding_mask=padding_mask.unsqueeze(-3).to(dtype=z.dtype),
+                inter_chain_mask=inter_chain_mask,
+                chunk_size=chunk_size,
+                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_lma=use_lma,
+                inplace_safe=inplace_safe,
+            )
+
+            del cond
         
-        raw_atom_pos = single_template_feats["template_all_atom_positions"]
-
-        # Vec3Arrays are required to be float32
-        atom_pos = geometry.Vec3Array.from_array(raw_atom_pos.to(dtype=torch.float32))
-
-        rigid, backbone_mask = all_atom_multimer.make_backbone_affine(
-            atom_pos,
-            single_template_feats["template_all_atom_mask"],
-            single_template_feats["template_aatype"],
-        )
-        points = rigid.translation
-        rigid_vec = rigid[..., None].inverse().apply_to_point(points)
-        unit_vector = rigid_vec.normalized()
-
-        pair_act = self.template_pair_embedder(
-            template_dgram,
-            aatype_one_hot,
-            z,
-            pseudo_beta_mask,
-            backbone_mask,
-            unit_vector,
-            esm_embedding,
-            inplace_safe,
-        )
-        tp, cond = pair_act.chunk(2, dim=-1)
-
-        # [*, S_t, N, N, C_z]
-        tp = self.template_pair_stack(
-            tp,
-            padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
-            chunk_size=chunk_size,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
-            inplace_safe=inplace_safe,
-            _mask_trans=_mask_trans,
-        )
-        # [*, N, N, C_z]
-        tp = torch.nn.functional.relu(tp)
-        tp = self.linear_tp(tp)
-
-        cond = self.pair_conditioning(
-            times,
-            cond,
-            inplace_safe=inplace_safe,
-        )
-        cond = self.pair_conditioning_stack(
-            cond,
-            padding_mask.unsqueeze(-3).to(dtype=z.dtype),
-            chunk_size=chunk_size,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
-            inplace_safe=inplace_safe,
-            _mask_trans=_mask_trans,
-        )
-        # [*, N, N, C_z]
-        cond = torch.nn.functional.relu(cond)
-        cond = self.linear_cond(cond)
-
-        tp = self.rigid_denoiser_stack(
-            tp,
-            cond,
-            padding_mask=padding_mask.unsqueeze(-3).to(dtype=z.dtype),
-            inter_chain_mask=inter_chain_mask,
-            chunk_size=chunk_size,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
-            inplace_safe=inplace_safe,
-        )
-
-        del cond
-
-        tp = self.linear_final(tp)
+            tp = tp.squeeze(templ_dim)
+            
+            full_pair_update = add(full_pair_update, tp, inplace_safe)
+            
+            del tp
         
-        tp = tp.squeeze(templ_dim)
+        full_pair_update = full_pair_update / n_templ
+        
+        full_pair_update = self.linear_final(full_pair_update)
 
-        return tp
+        return full_pair_update
