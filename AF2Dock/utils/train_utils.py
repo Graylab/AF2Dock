@@ -325,3 +325,158 @@ def freeze_params(params):
             params.param.requires_grad = False
     else:
         raise ValueError("Unknown params input type: {}".format(type(params)))
+
+def generate_template_translate_dict(model):
+    
+    LinearWeight = lambda l: (Param(l, param_type=ParamType.LinearWeight))
+    LinearBias = lambda l: (Param(l))
+    LinearWeightMHA = lambda l: (Param(l, param_type=ParamType.LinearWeightMHA))
+    LinearBiasMHA = lambda b: (Param(b, param_type=ParamType.LinearBiasMHA))
+    LinearWeightSwap = lambda l: (Param(l, param_type=ParamType.LinearWeight, swap=True))
+    LinearBiasSwap = lambda l: (Param(l, swap=True))
+
+    LinearParams = lambda l: {
+        "weights": LinearWeight(l.weight),
+        "bias": LinearBias(l.bias),
+    }
+    
+    LinearParamsSwap = lambda l: {
+        "weights": LinearWeightSwap(l.weight),
+        "bias": LinearBiasSwap(l.bias),
+    }
+    
+    LayerNormParams = lambda l: {
+        "scale": Param(l.weight),
+        "offset": Param(l.bias),
+    }
+
+    AttentionParams = lambda att: {
+        "query_w": LinearWeightMHA(att.linear_q.weight),
+        "key_w": LinearWeightMHA(att.linear_k.weight),
+        "value_w": LinearWeightMHA(att.linear_v.weight),
+        "output_w": Param(
+            att.linear_o.weight,
+            param_type=ParamType.LinearMHAOutputWeight,
+        ),
+        "output_b": LinearBias(att.linear_o.bias),
+    }
+
+    AttentionGatedParams = lambda att: dict(
+        **AttentionParams(att),
+        **{
+            "gating_w": LinearWeightMHA(att.linear_g.weight),
+            "gating_b": LinearBiasMHA(att.linear_g.bias),
+        },
+    )
+
+    TriAttParams = lambda tri_att: {
+        "query_norm": LayerNormParams(tri_att.layer_norm),
+        "feat_2d_weights": LinearWeight(tri_att.linear.weight),
+        "attention": AttentionGatedParams(tri_att.mha),
+    }
+
+    def TriMulOutParams(tri_mul, outgoing=True):
+        lin_param_type = LinearParams if outgoing else LinearParamsSwap
+        d = {
+            "left_norm_input": LayerNormParams(tri_mul.layer_norm_in),
+            "projection": lin_param_type(tri_mul.linear_ab_p),
+            "gate": lin_param_type(tri_mul.linear_ab_g),
+            "center_norm": LayerNormParams(tri_mul.layer_norm_out),
+        }
+
+        d.update({
+            "output_projection": LinearParams(tri_mul.linear_z),
+            "gating_linear": LinearParams(tri_mul.linear_g),
+        })
+
+        return d
+
+    TriMulInParams = partial(TriMulOutParams, outgoing=False)
+
+    PairTransitionParams = lambda pt: {
+        "input_layer_norm": LayerNormParams(pt.layer_norm),
+        "transition1": LinearParams(pt.linear_1),
+        "transition2": LinearParams(pt.linear_2),
+    }
+
+    TemplatePairBlockParams = lambda b: {
+        "triangle_attention_starting_node": TriAttParams(b.tri_att_start),
+        "triangle_attention_ending_node": TriAttParams(b.tri_att_end),
+        "triangle_multiplication_outgoing": TriMulOutParams(b.tri_mul_out),
+        "triangle_multiplication_incoming": TriMulInParams(b.tri_mul_in),
+        "pair_transition": PairTransitionParams(b.pair_transition),
+    }
+
+    tps_blocks = model.rigid_denoiser.template_pair_stack.blocks
+    tps_blocks_params = import_weights.stacked(
+        [TemplatePairBlockParams(b) for b in tps_blocks]
+    )
+    temp_embedder = model.rigid_denoiser
+    template_param_dict = {
+        "template_embedding": {
+            "single_template_embedding": {
+                "query_embedding_norm": LayerNormParams(
+                    temp_embedder.template_pair_embedder.query_embedding_layer_norm
+                ),
+                "template_pair_embedding_0": LinearParams(
+                    temp_embedder.template_pair_embedder.dgram_linear
+                ),
+                "template_pair_embedding_1": LinearParams(
+                    temp_embedder.template_pair_embedder.pseudo_beta_mask_linear
+                ),
+                "template_pair_embedding_2": LinearParams(
+                    temp_embedder.template_pair_embedder.aatype_linear_1
+                ),
+                "template_pair_embedding_3": LinearParams(
+                    temp_embedder.template_pair_embedder.aatype_linear_2
+                ),
+                "template_pair_embedding_4": LinearParams(
+                    temp_embedder.template_pair_embedder.x_linear
+                ),
+                "template_pair_embedding_5": LinearParams(
+                    temp_embedder.template_pair_embedder.y_linear
+                ),
+                "template_pair_embedding_6": LinearParams(
+                    temp_embedder.template_pair_embedder.z_linear
+                ),
+                "template_pair_embedding_7": LinearParams(
+                    temp_embedder.template_pair_embedder.backbone_mask_linear
+                ),
+                "template_pair_embedding_8": LinearParams(
+                    temp_embedder.template_pair_embedder.query_embedding_linear
+                ),
+                "template_embedding_iteration": tps_blocks_params,
+                "output_layer_norm": LayerNormParams(
+                    temp_embedder.template_pair_stack.layer_norm
+                ),
+            },
+            "output_linear": LinearParams(
+                temp_embedder.linear_tp
+            ),
+        },
+    }
+    translations = {"evoformer": {}}
+    translations["evoformer"].update(template_param_dict)
+    
+    return translations
+
+def import_template_from_jax_weights_(model, npz_path):
+    data = np.load(npz_path)
+    translations = generate_template_translate_dict(model)
+    
+    # Flatten keys and insert missing key prefixes
+    flat = import_weights.process_translation_dict(translations)
+
+    # Sanity check
+    keys = list(data.keys())
+    flat_keys = list(flat.keys())
+    incorrect = [k for k in flat_keys if k not in keys]
+    missing = [k for k in keys if k not in flat_keys]
+    # print(f"Incorrect: {incorrect}")
+    # print(f"Missing: {missing}")
+
+    assert len(incorrect) == 0
+    # assert(sorted(list(flat.keys())) == sorted(list(data.keys())))
+
+    # Set weights
+    import_weights.assign(flat, data)
