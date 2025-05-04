@@ -269,8 +269,11 @@ class AF2DockWrapper(pl.LightningModule):
 
     def load_from_jax(self, jax_path):
         train_utils.import_jax_weights_(
-                self.model, jax_path
+            self.model, jax_path
         )
+        # train_utils.import_template_from_jax_weights_(
+        #     self.model, jax_path
+        # )
         # Initialize the EMA weights
         state_dict = self.model.state_dict()
         with torch.no_grad():

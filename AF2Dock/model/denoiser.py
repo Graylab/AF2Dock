@@ -472,11 +472,11 @@ class RigidDenoiser(nn.Module):
         esm_embedding = batch.pop("esm_embedding")
         for i in range(n_templ):
             idx = batch["template_aatype"].new_tensor(i)
-            times = batch.pop("times")
             single_template_feats = tensor_tree_map(
                 lambda t: torch.index_select(t, templ_dim, idx),
                 batch,
             )
+            times = single_template_feats['times']
 
             template_positions, pseudo_beta_mask = pseudo_beta_fn(
                 single_template_feats["template_aatype"],
@@ -550,12 +550,12 @@ class RigidDenoiser(nn.Module):
             # [*, N, N, C_z]
             cond = torch.nn.functional.relu(cond)
             cond = self.linear_cond(cond)
-
+            
             tp = self.rigid_denoiser_stack(
                 tp,
                 cond,
                 padding_mask=padding_mask.unsqueeze(-3).to(dtype=z.dtype),
-                inter_chain_mask=inter_chain_mask,
+                inter_chain_mask=inter_chain_mask.unsqueeze(-3).to(dtype=z.dtype),
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
