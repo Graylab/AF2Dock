@@ -142,8 +142,9 @@ class AF2DockWrapper(pl.LightningModule):
             # model.state_dict() contains references to model weights rather
             # than copies. Therefore, we need to clone them before calling 
             # load_state_dict().
-            clone_param = lambda t: t.detach().clone()
-            self.cached_weights = tensor_tree_map(clone_param, self.model.state_dict())
+            def clone_param(t): return t.detach().clone()
+            self.cached_weights = tensor_tree_map(
+                clone_param, self.model.state_dict())
             self.model.load_state_dict(self.ema.state_dict()["params"])
 
         ground_truth = batch.pop('gt_features', None)
