@@ -55,9 +55,11 @@ from AF2Dock.utils import train_utils
 logger = logging.getLogger(__name__)
 
 class AF2DockWrapper(pl.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, low_prec=False, deepspeed=False):
         super(AF2DockWrapper, self).__init__()
         self.config = config
+        self.low_prec = low_prec
+        self.deepspeed = deepspeed
         self.model = AF2Dock(config)
         self.is_multimer = self.config.globals.is_multimer
 
@@ -119,9 +121,15 @@ class AF2DockWrapper(pl.LightningModule):
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         if self.is_multimer:
-            batch = multi_chain_permutation_align(out=outputs,
-                                                  features=batch,
-                                                  ground_truth=ground_truth)
+            if self.low_prec and (not self.deepspeed):
+                with torch.amp.autocast('cuda', enabled=False):
+                    batch = multi_chain_permutation_align(out=outputs,
+                                                        features=batch,
+                                                        ground_truth=ground_truth)
+            else:
+                batch = multi_chain_permutation_align(out=outputs,
+                                                    features=batch,
+                                                    ground_truth=ground_truth)
 
         # Compute loss
         loss, loss_breakdown = self.loss(
@@ -156,9 +164,15 @@ class AF2DockWrapper(pl.LightningModule):
         batch["use_clamped_fape"] = 0.
 
         if self.is_multimer:
-            batch = multi_chain_permutation_align(out=outputs,
-                                                  features=batch,
-                                                  ground_truth=ground_truth)
+            if self.low_prec and (not self.deepspeed):
+                with torch.amp.autocast('cuda', enabled=False):
+                    batch = multi_chain_permutation_align(out=outputs,
+                                                        features=batch,
+                                                        ground_truth=ground_truth)
+            else:
+                batch = multi_chain_permutation_align(out=outputs,
+                                                    features=batch,
+                                                    ground_truth=ground_truth)
 
         # Compute loss and other metrics
         _, loss_breakdown = self.loss(
@@ -304,14 +318,16 @@ def main(args):
     config = model_config(
         train=True, 
         low_prec=is_low_precision,
-        use_deepspeed_evoformer_attention=args.deepspeed_config_path is not None,
-    ) 
+        use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
+    )
     if args.experiment_config_json: 
         with open(args.experiment_config_json, 'r') as f:
             custom_config_dict = json.load(f)
         config.update_from_flattened_dict(custom_config_dict)
 
-    model_module = AF2DockWrapper(config)
+    model_module = AF2DockWrapper(config,
+                                  low_prec=is_low_precision,
+                                  deepspeed=args.deepspeed_config_path is not None)
 
     if args.resume_from_ckpt:
         if args.resume_model_weights_only:
@@ -424,7 +440,7 @@ def main(args):
         strategy = DDPStrategy(find_unused_parameters=False,
                                cluster_environment=cluster_environment)
     else:
-        strategy = None
+        strategy = "auto"
  
     if(args.wandb and is_rank_zero):
         freeze_path = f"{wdb_logger.experiment.dir}/package_versions.txt"
@@ -441,6 +457,8 @@ def main(args):
         'callbacks': callbacks,
         'logger': loggers,
     })
+    if args.deepspeed_config_path is None:
+        trainer_args['gradient_clip_val'] = 0.1
     trainer = pl.Trainer(**trainer_args)
 
 
@@ -493,6 +511,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--deepspeed_config_path", type=str, default=None,
         help="Path to DeepSpeed config. If not provided, DeepSpeed is disabled"
+    )
+    parser.add_argument(
+        "--use_deepspeed_evoformer_attention", action="store_true", default=False,
+        help="Whether to use DeepSpeed Evoformer attention implementation"
     )
     parser.add_argument(
         "--checkpoint_every_val_check", action="store_true", default=False,
