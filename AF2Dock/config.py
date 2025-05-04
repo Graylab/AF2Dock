@@ -677,7 +677,7 @@ config = mlc.ConfigDict(
         },
         "relax": {
             "max_iterations": 0,  # no max
-            "tolerance": 2.39,
+            "tolerance": 10.0,
             "stiffness": 10.0,
             "max_outer_iterations": 20,
             "exclude_residues": [],
