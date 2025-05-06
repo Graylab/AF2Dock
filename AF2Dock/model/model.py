@@ -33,7 +33,7 @@ from openfold.utils.tensor_utils import (
     add,
     tensor_tree_map,
 )
-from AF2Dock.model.denoiser import RigidDenoiser
+from AF2Dock.model.denoiser import RigidDenoiser, RigidDenoiserSequential
 from AF2Dock.model.heads import AuxiliaryHeads
 
 class AF2Dock(nn.Module):
@@ -56,9 +56,14 @@ class AF2Dock(nn.Module):
             **self.config["input_embedder"]
         )
 
-        self.rigid_denoiser = RigidDenoiser(
-            self.rigid_denoiser_config,
-        )
+        if self.rigid_denoiser_config["sequential_model"]:
+            self.rigid_denoiser = RigidDenoiserSequential(
+                self.rigid_denoiser_config,
+            )
+        else:
+            self.rigid_denoiser = RigidDenoiser(
+                self.rigid_denoiser_config,
+            )
         
         self.extra_msa_embedder = ExtraMSAEmbedder(
             **self.extra_msa_config["extra_msa_embedder"],
@@ -144,11 +149,14 @@ class AF2Dock(nn.Module):
             inplace_safe=inplace_safe,
         )
 
-        # [*, N, N, C_z]
-        z = add(z,
-                denoised_pair_update,
-                inplace_safe,
-                )
+        if self.rigid_denoiser_config["sequential_model"]:
+            z = denoised_pair_update
+        else:
+            # [*, N, N, C_z]
+            z = add(z,
+                    denoised_pair_update,
+                    inplace_safe,
+                    )
 
         extra_msa_fn = data_transforms_multimer.build_extra_msa_feat
 

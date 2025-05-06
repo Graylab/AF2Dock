@@ -18,6 +18,11 @@ import copy
 import importlib
 import ml_collections as mlc
 
+c_z = mlc.FieldReference(128, field_type=int)
+c_m = mlc.FieldReference(256, field_type=int)
+c_t = mlc.FieldReference(64, field_type=int)
+c_e = mlc.FieldReference(64, field_type=int)
+c_s = mlc.FieldReference(384, field_type=int)
 
 def set_inf(c, inf):
     for k, v in c.items():
@@ -79,6 +84,7 @@ def model_config(
     low_prec=False, 
     long_sequence_inference=False,
     use_deepspeed_evoformer_attention=False,
+    sequential_model=False,
 ):
     c = copy.deepcopy(config)
     # TRAINING PRESETS
@@ -271,17 +277,14 @@ def model_config(
         set_inf(c, 1e4)
     
     c.update(AF2Dock_config_update.copy_and_resolve_references())
+    
+    if sequential_model:
+        c.model.rigid_denoiser.sequential_model = True
+        c.model.rigid_denoiser.rigid_denoiser_stack.c_r = c_z
 
     enforce_config_constraints(c)
 
     return c
-
-
-c_z = mlc.FieldReference(128, field_type=int)
-c_m = mlc.FieldReference(256, field_type=int)
-c_t = mlc.FieldReference(64, field_type=int)
-c_e = mlc.FieldReference(64, field_type=int)
-c_s = mlc.FieldReference(384, field_type=int)
 
 # For seqemb mode, dimension size of the per-residue sequence embedding passed to the model
 # In current model, the dimension size is the ESM-1b dimension size i.e. 1280.
@@ -1101,9 +1104,11 @@ AF2Dock_config_update = mlc.ConfigDict({
             },
             "c_t": c_t,
             "c_r": c_t,
+            "c_cond": c_t,
             "c_z": c_z,
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,
+            "sequential_model": False,
         },
         "recycle_early_stop_tolerance": -1
     },

@@ -319,6 +319,7 @@ def main(args):
         train=True, 
         low_prec=is_low_precision,
         use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
+        sequential_model=args.sequential_model,
     )
     if args.experiment_config_json: 
         with open(args.experiment_config_json, 'r') as f:
@@ -503,6 +504,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pinder_entity_seq_cluster_pkl", type=str, default=None,
         help="Path to the pinder entity seq cluster pkl file."
+    )
+    parser.add_argument(
+        "--sequential_model", action="store_true", default=False,
+        help="Whether to use the sequential model."
     )
     parser.add_argument(
         "--seed", type=int, default=None,
