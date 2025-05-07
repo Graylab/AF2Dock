@@ -450,7 +450,7 @@ def main(args):
 
     trainer_kws = ['num_nodes', 'precision', 'max_epochs', 'log_every_n_steps', 'check_val_every_n_epoch',
                    'flush_logs_ever_n_steps', 'num_sanity_val_steps', 'accumulate_grad_batches',
-                   'limit_val_batches', 'overfit_batches']
+                   'limit_val_batches', 'overfit_batches', 'val_check_interval']
     trainer_args = {k: v for k, v in vars(args).items() if k in trainer_kws}
     trainer_args.update({
         'default_root_dir': args.output_dir,
@@ -485,7 +485,7 @@ def bool_type(bool_str: str):
         raise ValueError(f'Cannot interpret {bool_str} as bool')
 
 def num_type(num_str: str):
-    if num_str.isdecimal:
+    if num_str.isdecimal():
         return int(num_str)
     else:
         return float(num_str)
@@ -608,9 +608,13 @@ if __name__ == "__main__":
                                help="Accumulate gradients over k batches before next optimizer step.")
 
     trainer_group.add_argument(
-        "--check_val_every_n_epoch", type=num_type, default=0.25,
+        "--check_val_every_n_epoch", type=int, default=1,
     )
 
+    trainer_group.add_argument(
+        "--val_check_interval", type=num_type, default=0.1,
+    )
+    
     trainer_group.add_argument(
         "--limit_val_batches", type=num_type, default=0.1,
     )
