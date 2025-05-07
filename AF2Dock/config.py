@@ -84,7 +84,7 @@ def model_config(
     low_prec=False, 
     long_sequence_inference=False,
     use_deepspeed_evoformer_attention=False,
-    sequential_model=False,
+    sequential_model=True,
 ):
     c = copy.deepcopy(config)
     # TRAINING PRESETS
@@ -278,9 +278,10 @@ def model_config(
     
     c.update(AF2Dock_config_update.copy_and_resolve_references())
     
-    if sequential_model:
-        c.model.rigid_denoiser.sequential_model = True
-        c.model.rigid_denoiser.rigid_denoiser_stack.c_r = c_z
+    if not sequential_model:
+        c.model.rigid_denoiser.sequential_model = False
+        c.model.rigid_denoiser.c_r = c_t
+        c.model.rigid_denoiser.rigid_denoiser_stack.c_r = c_t
 
     enforce_config_constraints(c)
 
@@ -1089,7 +1090,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 # "transition_expansion_factor": 2
             },
             "rigid_denoiser_stack": {
-                "c_r": c_t,
+                "c_r": c_z,
                 "c_cond": c_t,
                 "c_hidden_tri_att": 16,
                 "c_hidden_tri_mul": 64,
@@ -1103,12 +1104,12 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "fuse_projection_weights": True
             },
             "c_t": c_t,
-            "c_r": c_t,
+            "c_r": c_z,
             "c_cond": c_t,
             "c_z": c_z,
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,
-            "sequential_model": False,
+            "sequential_model": True,
         },
         "recycle_early_stop_tolerance": -1
     },

@@ -506,7 +506,7 @@ if __name__ == "__main__":
         help="Path to the pinder entity seq cluster pkl file."
     )
     parser.add_argument(
-        "--sequential_model", action="store_true", default=False,
+        "--sequential_model", type=bool_type, default=True,
         help="Whether to use the sequential model."
     )
     parser.add_argument(

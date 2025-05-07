@@ -33,7 +33,7 @@ from openfold.utils.tensor_utils import (
     add,
     tensor_tree_map,
 )
-from AF2Dock.model.denoiser import RigidDenoiser, RigidDenoiserSequential
+from AF2Dock.model.denoiser import RigidDenoiser
 from AF2Dock.model.heads import AuxiliaryHeads
 
 class AF2Dock(nn.Module):
@@ -56,14 +56,9 @@ class AF2Dock(nn.Module):
             **self.config["input_embedder"]
         )
 
-        if self.rigid_denoiser_config["sequential_model"]:
-            self.rigid_denoiser = RigidDenoiserSequential(
-                self.rigid_denoiser_config,
-            )
-        else:
-            self.rigid_denoiser = RigidDenoiser(
-                self.rigid_denoiser_config,
-            )
+        self.rigid_denoiser = RigidDenoiser(
+            self.rigid_denoiser_config,
+        )
         
         self.extra_msa_embedder = ExtraMSAEmbedder(
             **self.extra_msa_config["extra_msa_embedder"],
@@ -89,7 +84,7 @@ class AF2Dock(nn.Module):
         inter_chain_mask = (
             asym_id[..., None] != asym_id[..., None, :]
         ) * pair_mask
-        denoised_pair_update = self.rigid_denoiser(
+        denoised_pair = self.rigid_denoiser(
             batch,
             z,
             pair_mask.to(dtype=z.dtype),
@@ -102,7 +97,7 @@ class AF2Dock(nn.Module):
             _mask_trans=self.config._mask_trans
         )
 
-        return denoised_pair_update
+        return denoised_pair
 
     def iteration(self, feats):
         # Primary output dictionary
@@ -140,7 +135,7 @@ class AF2Dock(nn.Module):
         template_feats["esm_embedding"] = feats["esm_embedding"].unsqueeze(no_batch_dims)
         template_feats["times"] = feats["t"]
 
-        denoised_pair_update = self.rigid_denoise_ini_struct(
+        denoised_pair = self.rigid_denoise_ini_struct(
             template_feats,
             feats,
             z,
@@ -149,12 +144,12 @@ class AF2Dock(nn.Module):
             inplace_safe=inplace_safe,
         )
 
-        if self.rigid_denoiser_config["sequential_model"]:
-            z = denoised_pair_update
+        if self.rigid_denoiser_config.sequential_model:
+            z = denoised_pair
         else:
             # [*, N, N, C_z]
             z = add(z,
-                    denoised_pair_update,
+                    denoised_pair,
                     inplace_safe,
                     )
 
