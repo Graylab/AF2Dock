@@ -308,7 +308,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
             return data
         
         except Exception as e:
-            if self.mode == 'train' or self.mode == 'val':
+            if self.mode == 'train' or self.mode == 'eval':
                 new_idx = torch.randint(0, len(self.data_index), (1,)).item()
                 logger.warning(f"Error loading {struct_id}: {e}, trying to replace with {self.data_index.iloc[new_idx]['id']}")
                 return self[new_idx]
