@@ -604,7 +604,7 @@ if __name__ == "__main__":
         "--num_sanity_val_steps", type=int, default=0,
     )
 
-    trainer_group.add_argument("--accumulate_grad_batches", type=int, default=4,
+    trainer_group.add_argument("--accumulate_grad_batches", type=int, default=1,
                                help="Accumulate gradients over k batches before next optimizer step.")
 
     trainer_group.add_argument(

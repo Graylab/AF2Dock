@@ -477,7 +477,7 @@ config = mlc.ConfigDict(
                 # "use_small_bfd": False,
                 "data_loaders": {
                     "batch_size": 1,
-                    "num_workers": 16,
+                    "num_workers": 12,
                     "pin_memory": True,
                 },
             },
@@ -1050,7 +1050,7 @@ AF2Dock_config_update = mlc.ConfigDict({
         "rigid_body": {
             "tr_sigma": 30.0,
             "rot_prior": "uniform",
-            "rot_sigma": 0.8
+            "rot_sigma": 0.8 # only applies with gaussian prior
         }
     },
     "model": {
