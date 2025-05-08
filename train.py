@@ -272,8 +272,6 @@ class AF2DockWrapper(pl.LightningModule):
 
     def on_load_checkpoint(self, checkpoint):
         ema = checkpoint["ema"]
-        if(not self.model.template_config.enabled):
-            ema["params"] = {k:v for k,v in ema["params"].items() if not "template" in k}
         self.ema.load_state_dict(ema)
 
     def on_save_checkpoint(self, checkpoint):

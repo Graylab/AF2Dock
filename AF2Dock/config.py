@@ -477,7 +477,7 @@ config = mlc.ConfigDict(
                 # "use_small_bfd": False,
                 "data_loaders": {
                     "batch_size": 1,
-                    "num_workers": 12,
+                    "num_workers": 6,
                     "pin_memory": True,
                 },
             },
