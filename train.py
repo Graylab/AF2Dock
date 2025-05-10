@@ -614,7 +614,7 @@ if __name__ == "__main__":
     )
     
     trainer_group.add_argument(
-        "--limit_val_batches", type=num_type, default=0.1,
+        "--limit_val_batches", type=num_type, default=0.15,
     )
 
     trainer_group.add_argument(

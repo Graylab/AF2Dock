@@ -20,7 +20,7 @@ import ml_collections as mlc
 
 c_z = mlc.FieldReference(128, field_type=int)
 c_m = mlc.FieldReference(256, field_type=int)
-c_t = mlc.FieldReference(64, field_type=int)
+c_t = mlc.FieldReference(128, field_type=int)
 c_e = mlc.FieldReference(64, field_type=int)
 c_s = mlc.FieldReference(384, field_type=int)
 
@@ -1071,11 +1071,11 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "c_t": c_t,
                 # DISCREPANCY: c_hidden_tri_att here is given in the supplement
                 # as 64. In the code, it's 16.
-                "c_hidden_tri_att": 16,
-                "c_hidden_tri_mul": 64,
+                "c_hidden_tri_att": 32,
+                "c_hidden_tri_mul": 128,
                 "no_blocks": 2,
                 "no_heads": 4,
-                "pair_transition_n": 2,
+                "pair_transition_n": 4,
                 "dropout_rate": 0.25,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "tune_chunk_size": tune_chunk_size,
@@ -1092,11 +1092,11 @@ AF2Dock_config_update = mlc.ConfigDict({
             "rigid_denoiser_stack": {
                 "c_r": c_z,
                 "c_cond": c_t,
-                "c_hidden_tri_att": 16,
-                "c_hidden_tri_mul": 64,
-                "no_blocks": 6,
+                "c_hidden_tri_att": 32,
+                "c_hidden_tri_mul": 128,
+                "no_blocks": 4,
                 "no_heads": 4,
-                "pair_transition_n": 2,
+                "pair_transition_n": 4,
                 "dropout_rate": 0.25,
                 "blocks_per_ckpt": blocks_per_ckpt,
                 "tune_chunk_size": tune_chunk_size,

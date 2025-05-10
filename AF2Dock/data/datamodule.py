@@ -31,6 +31,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  mode: str = "train",
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
+                 max_val_len: int = 1000,
                  ):
         """
             Args:
@@ -86,7 +87,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 else:
                     self.data_index = get_subsampled_train(train_index)
             elif mode == "eval":
-                self.data_index = get_index().query("split == 'val'").copy().reset_index(drop=True)
+                val_index = get_index().query("split == 'val'").copy().reset_index(drop=True)
+                val_index = val_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
+                val_index['total_length'] = val_index['length1'] + val_index['length2']
+                val_index = val_index[val_index['total_length'] <= max_val_len]
+                val_index = val_index.drop(columns=['length1', 'length2', 'total_length'])
+                self.data_index = val_index.reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
