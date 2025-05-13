@@ -55,11 +55,12 @@ from AF2Dock.utils import train_utils
 logger = logging.getLogger(__name__)
 
 class AF2DockWrapper(pl.LightningModule):
-    def __init__(self, config, low_prec=False, deepspeed=False):
+    def __init__(self, config, low_prec=False, deepspeed=False, finetune_lr=False):
         super(AF2DockWrapper, self).__init__()
         self.config = config
         self.low_prec = low_prec
         self.deepspeed = deepspeed
+        self.finetune_lr = finetune_lr
         self.model = AF2Dock(config)
         self.is_multimer = self.config.globals.is_multimer
 
@@ -256,10 +257,19 @@ class AF2DockWrapper(pl.LightningModule):
                 if 'initial_lr' not in group:
                     group['initial_lr'] = learning_rate
 
-        lr_scheduler = AlphaFoldLRScheduler(
-            optimizer,
-            last_epoch=self.last_lr_step
-        )
+        if not self.finetune_lr:
+            lr_scheduler = AlphaFoldLRScheduler(
+                optimizer,
+                last_epoch=self.last_lr_step
+            )
+        else:
+            lr_scheduler = AlphaFoldLRScheduler(
+                optimizer,
+                last_epoch=self.last_lr_step,
+                base_lr=0.0005,
+                max_lr=0.0005,
+                warmup_no_steps=1,
+            )
 
         return {
             "optimizer": optimizer,
@@ -326,7 +336,8 @@ def main(args):
 
     model_module = AF2DockWrapper(config,
                                   low_prec=is_low_precision,
-                                  deepspeed=args.deepspeed_config_path is not None)
+                                  deepspeed=args.deepspeed_config_path is not None,
+                                  finetune_lr=args.finetune_lr)
 
     if args.resume_from_ckpt:
         if args.resume_model_weights_only:
@@ -538,6 +549,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--freeze_af_params", type=bool_type, default=True,
         help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
+    )
+    parser.add_argument(
+        "--finetune_lr", action="store_true", default=False,
+        help="""Whether to use finetune learning rate"""
     )
     parser.add_argument(
         "--log_performance", type=bool_type, default=False,
