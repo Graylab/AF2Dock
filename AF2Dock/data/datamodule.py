@@ -32,6 +32,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
                  max_val_len: int = 1000,
+                 test_split: str = "pinder_af2"
                  ):
         """
             Args:
@@ -46,19 +47,19 @@ class AF2DockDataset(torch.utils.data.Dataset):
         if cached_esm_embedding_folder is not None:
             self.cached_esm_embedding_folder = Path(cached_esm_embedding_folder)
         else:
-            if self.mode == "train" or self.mode == "eval":
-                raise ValueError("cached_esm_embedding_folder must be provided for train and eval modes")
+            if self.mode == "train" or self.mode == "eval" or self.mode == "test":
+                raise ValueError("cached_esm_embedding_folder must be provided for train, eval and test modes")
             self.cached_esm_embedding_folder = None
         self.mode = mode
 
-        valid_modes = ["train", "eval", "predict"]
+        valid_modes = ["train", "eval", "test", "predict"]
         if mode not in valid_modes:
             raise ValueError(f'mode must be one of {valid_modes}')
 
         self.data_pipeline = of_data.DataPipelineMultimer()
         self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
 
-        if mode == "train" or mode == "eval":
+        if mode == "train" or mode == "eval" or mode == "test":
             full_index = get_index()
             entity_meta = get_supplementary_data("entity_metadata")
             chain_meta = get_supplementary_data("chain_metadata")
@@ -93,6 +94,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 val_index = val_index[val_index['total_length'] <= max_val_len]
                 val_index = val_index.drop(columns=['length1', 'length2', 'total_length'])
                 self.data_index = val_index.reset_index(drop=True)
+            elif mode == "test":
+                self.data_index = get_index().query(f"'{test_split}' == True").copy().reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -159,7 +162,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
         num_struct_batch = self.config[self.mode].max_templates
 
         try:
-            if self.mode == 'train' or self.mode == 'eval':
+            if self.mode == 'train' or self.mode == 'eval' or self.mode == 'test':
                 t = torch.rand(num_struct_batch, 1).numpy()
                 if num_struct_batch > 1:
                     num_to_replace = math.ceil(num_struct_batch / 4)
@@ -175,6 +178,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 seq_dict = {}
                 struct_feats_at_t_dict = {}
                 esm_embedding_dict = {}
+                if self.mode == 'test':
+                    ini_struct_feats_dict = {}
                 
                 for part in ['rec', 'lig']:
                     abbr = 'R' if part == 'rec' else 'L'
@@ -278,6 +283,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     seq_dict[part] = part_seq
                     esm_embedding_dict[part] = part_esm_embedding
                     struct_feats_at_t_dict[part] = part_feats_at_t
+                    if self.mode == 'test':
+                        part_ini_struct_feats = {
+                            "ini_all_atom_positions": torch.tensor(part_ini_all_atom_positions),
+                            "ini_all_atom_mask": torch.tensor(part_ini_all_atom_mask),
+                        }
+                        ini_struct_feats_dict[part] = part_ini_struct_feats
 
                 fasta_str = f">rec\n{seq_dict['rec']}\n>lig\n{seq_dict['lig']}\n"
 
@@ -310,6 +321,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 [idx for _ in range(data["aatype"].shape[-1])],
                 dtype=torch.int64,
                 device=data["aatype"].device)
+            
+            if self.mode == 'test':
+                data["ini_struct_feats"] = ini_struct_feats_dict
             
             return data
         
