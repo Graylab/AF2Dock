@@ -389,6 +389,7 @@ class AF2DockDataModule(pl.LightningDataModule):
             config=self.config,
             stage=stage,
             generator=generator,
+            shuffle=stage=="train",
             batch_size=self.config.data_module.data_loaders.batch_size,
             num_workers=self.config.data_module.data_loaders.num_workers,
             collate_fn=batch_collator,
