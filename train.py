@@ -351,13 +351,20 @@ def main(args):
             if 'module' in sd:
                 sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
                 import_openfold_weights_(model=model_module, state_dict=sd)
+                ema_params = model_module.model.state_dict()
             elif 'state_dict' in sd:
                 import_openfold_weights_(
                     model=model_module, state_dict=sd['state_dict'])
+                ema_params = sd['ema']['params']
             else:
                 # Loading from pre-trained model
                 sd = {'model.'+k: v for k, v in sd.items()}
                 import_openfold_weights_(model=model_module, state_dict=sd)
+                ema_params = model_module.model.state_dict()
+            # Initialize the EMA weights
+            with torch.no_grad():
+                for k in ema_params.keys():
+                    model_module.ema.params[k] = ema_params[k].clone().detach()
             logging.info("Successfully loaded model weights...")
 
         else:  # Loads a checkpoint to start from a specific time step
