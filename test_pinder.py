@@ -14,14 +14,13 @@
 # limitations under the License.
 import argparse
 import logging
-import math
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 import pickle
 import random
-import time
 import json
+from tqdm import tqdm
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)
@@ -45,7 +44,6 @@ from pytorch_lightning.utilities.deepspeed import (
 )
 
 from openfold.np import protein, residue_constants
-from openfold.utils.script_utils import (load_models_from_command_line, run_model, prep_output)
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils import multi_chain_permutation
 
@@ -85,6 +83,43 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     
     return global_r, global_x, swap
     
+def write_output(batch, out, outpath, outprefix, out_pred=True, out_template=False):
+    aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
+    residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
+    chain_index = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy() - 1
+    
+    if out_template:
+        template_all_atom_pos_out = batch['template_all_atom_positions'].clone().detach().cpu().numpy()[0][0][..., -1]
+        template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
+        prot_template = protein.Protein(
+            aatype=aatype,
+            atom_positions=template_all_atom_pos_out,
+            atom_mask=template_all_atom_mask_out,
+            residue_index=residue_index,
+            b_factors=np.zeros_like(template_all_atom_mask_out),
+            chain_index=chain_index,
+        )
+        with open(outpath / (outprefix+'_template.pdb'), 'w') as fp:
+            fp.write(protein.to_pdb(prot_template))
+    
+    if out_pred:
+        out = tensor_tree_map(lambda x: np.array(x[0]), out)
+        all_atom_pos_out = out['all_atom_positions']
+        all_atom_mask_out = out['all_atom_masks']
+        b_factors_out = out['plddt']
+        b_factors_out = np.repeat(b_factors_out[..., None], residue_constants.atom_type_num, axis=-1)
+        prot_pred = protein.Protein(
+            aatype=aatype,
+            atom_positions=all_atom_pos_out,
+            atom_mask=all_atom_mask_out,
+            residue_index=residue_index,
+            b_factors=b_factors_out,
+            chain_index=chain_index,
+        )
+        with open(outpath / (outprefix+'.pdb'), 'w') as fp:
+            fp.write(protein.to_pdb(prot_pred))
+        with open(outpath / (outprefix+'_out.pkl'), "wb") as fp:
+            pickle.dump(out, fp, protocol=pickle.HIGHEST_PROTOCOL)
 
 def main(args):
     # Create the output directory
@@ -97,6 +132,13 @@ def main(args):
         with open(args.experiment_config_json, 'r') as f:
             custom_config_dict = json.load(f)
         config.update_from_flattened_dict(custom_config_dict)
+    
+    if args.pinder_test_type == 'holo':
+        config.data.test.pinder_cate_prob = {"holo": 1.0, "apo": 0.0, "pred": 0.0,}
+    elif args.pinder_test_type == 'apo':
+        config.data.test.pinder_cate_prob = {"holo": 0.0, "apo": 1.0, "pred": 0.0,}
+    elif args.pinder_test_type == 'predicted':
+        config.data.test.pinder_cate_prob = {"holo": 0.0, "apo": 0.0, "pred": 1.0,}
     
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
@@ -115,6 +157,7 @@ def main(args):
         batch_seed=args.seed,
         cached_esm_embedding_folder=args.cached_esm_embedding_folder,
         test_split=args.pinder_test_split,
+        test_type=args.pinder_test_type,
     )
     data_module.setup('test')
     dataloader = data_module.test_dataloader()
@@ -146,13 +189,16 @@ def main(args):
     )
     ca_idx = residue_constants.atom_order["CA"]
     
-    for batch in dataloader:
+    for data_idx, batch in tqdm(enumerate(dataloader)):
         gt_features = batch.pop("gt_features")
         data_id = dataloader.dataset.data_index.iloc[batch["batch_idx"].item()]['id']
-        output_name = data_id
         is_homomer = 2 in batch['sym_id']
+        
+        out_dir_data = output_dir_base / data_id
+        if not out_dir_data.exists():
+            out_dir_data.mkdir()
 
-        for sample_idx in range(args.num_samples):
+        for sample_idx in tqdm(range(args.num_samples)):
             curr_atom_pos = []
             atom_masks = []
             for part in ['rec', 'lig']:
@@ -175,7 +221,8 @@ def main(args):
             
             template_all_atom_mask = torch.cat(atom_masks, dim=-2)
             assert template_all_atom_mask.shape[-2] == batch['template_all_atom_mask'].shape[-3]
-            batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().to(batch['template_all_atom_mask'].dtype)
+            batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().to(
+                batch['template_all_atom_mask'].dtype).To(batch['template_all_atom_mask'].device)
             
             total_steps =  args.num_steps
             
@@ -185,7 +232,8 @@ def main(args):
                 
                 template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
                 assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
-                batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().to(batch['template_all_atom_positions'].dtype)
+                batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().to(
+                    batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
                 
                 out = model(batch)
                 out = tensor_tree_map(lambda x: x.cpu(), out)
@@ -214,47 +262,15 @@ def main(args):
                     lig_x_t = - lig_x * (s - t) / (1 - t)
                     updated_atom_pos[1] = (updated_atom_pos[1] @ lig_r_t + lig_x_t + lig_coms[1][..., None, :]) * atom_masks[1][..., None]
                     curr_atom_pos = updated_atom_pos
-
-            # Toss out the recycling dimensions --- we don't need them anymore
-            processed_feature_dict = tensor_tree_map(
-                lambda x: np.array(x[..., -1].cpu()),
-                processed_feature_dict
-            )
-            out = tensor_tree_map(lambda x: np.array(x.cpu()), out)
-
-            unrelaxed_protein = prep_output(
-                out,
-                processed_feature_dict,
-                feature_dict,
-                feature_processor,
-                args.config_preset,
-                args.multimer_ri_gap,
-                args.subtract_plddt
-            )
-
-            unrelaxed_file_suffix = "_unrelaxed.pdb"
-            if args.cif_output:
-                unrelaxed_file_suffix = "_unrelaxed.cif"
-            unrelaxed_output_path = os.path.join(
-                output_dir_base, f'{output_name}{unrelaxed_file_suffix}'
-            )
-
-            with open(unrelaxed_output_path, 'w') as fp:
-                if args.cif_output:
-                    fp.write(protein.to_modelcif(unrelaxed_protein))
-                else:
-                    fp.write(protein.to_pdb(unrelaxed_protein))
-
-            logger.info(f"Output written to {unrelaxed_output_path}...")
-
-            if args.save_outputs:
-                output_dict_path = os.path.join(
-                    output_directory, f'{output_name}_output_dict.pkl'
-                )
-                with open(output_dict_path, "wb") as fp:
-                    pickle.dump(out, fp, protocol=pickle.HIGHEST_PROTOCOL)
-
-                logger.info(f"Model output written to {output_dict_path}...")
+                    
+                    if args.save_intermediate_template or args.save_intermediate_pred:
+                        write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, out_template=args.save_intermediate_template)
+                    # if data_idx == 0:
+                    #     write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=True, out_template=True)
+                        
+            batch = tensor_tree_map(lambda x: x.cpu(), batch)
+            write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_template=args.save_intermediate_template)
+            # write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_template=data_idx == 0)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -285,28 +301,27 @@ if __name__ == "__main__":
              checkpoint directory or a .pt file"""
     )
     parser.add_argument(
-        "--save_outputs", action="store_true", default=False,
-        help="Whether to save all model outputs, including embeddings, etc."
+        "--save_intermediate_template", action="store_true", default=False,
+        help="""Whether to save intermediate templates"""
+    )
+    parser.add_argument(
+        "--save_intermediate_pred", action="store_true", default=False,
+        help="""Whether to save intermediate predictions"""
     )
     parser.add_argument(
         "--pinder_test_split", type=str, default='pinder_af2',
         choices=['pinder_af2', 'pinder_xl', 'pinder_s'],
     )
     parser.add_argument(
-        "--data_random_seed", type=int, default=None
+        "--pinder_test_type", type=str, default='holo',
+        choices=['holo', 'apo', 'predicted'],
     )
     parser.add_argument(
-        "--subtract_plddt", action="store_true", default=False,
-        help=""""Whether to output (100 - pLDDT) in the B-factor column instead
-                 of the pLDDT itself"""
+        "--data_random_seed", type=int, default=None
     )
     parser.add_argument(
         "--long_sequence_inference", action="store_true", default=False,
         help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the README for details"""
-    )
-    parser.add_argument(
-        "--cif_output", action="store_true", default=False,
-        help="Output predicted models in ModelCIF format instead of PDB format (default)"
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",

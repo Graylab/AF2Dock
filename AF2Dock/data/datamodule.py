@@ -32,7 +32,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
                  max_val_len: int = 1000,
-                 test_split: str = "pinder_af2"
+                 test_split: str = "pinder_af2",
+                 test_type: str = "holo",
                  ):
         """
             Args:
@@ -95,7 +96,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 val_index = val_index.drop(columns=['length1', 'length2', 'total_length'])
                 self.data_index = val_index.reset_index(drop=True)
             elif mode == "test":
-                self.data_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
+                test_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
+                self.data_index = test_index.query(f"{test_type}_R == True & {test_type}_L == True").reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -142,6 +144,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
         return ini_seqential_id_to_holo_seq_sequential_id
     
     def __getitem__(self, idx):
+        item_idx = idx
         index_entry = self.data_index.iloc[idx]
         struct_id = index_entry['id']
         num_struct_batch = self.config[self.mode].max_templates
@@ -303,7 +306,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
             # if it's inference mode, only need all_chain_features
             data["batch_idx"] = torch.tensor(
-                [idx for _ in range(data["aatype"].shape[-1])],
+                [item_idx for _ in range(data["aatype"].shape[-1])],
                 dtype=torch.int64,
                 device=data["aatype"].device)
             
@@ -331,6 +334,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
                  test_split: str = "pinder_af2",
+                 test_type: str = "holo",
                  **kwargs):
         super().__init__()
 
@@ -340,6 +344,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.cached_esm_embedding_folder = cached_esm_embedding_folder
         self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
         self.test_split = test_split
+        self.test_type = test_type
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -352,7 +357,7 @@ class AF2DockDataModule(pl.LightningDataModule):
             self.train_dataset = dataset_gen(mode="train")
             self.eval_dataset = dataset_gen(mode="eval")
         elif stage == "test":
-            self.test_dataset = dataset_gen(mode="test", test_split=self.test_split)
+            self.test_dataset = dataset_gen(mode="test", test_split=self.test_split, test_type=self.test_type)
         else:
             raise NotImplementedError("Prediction mode is not implemented yet")
 
