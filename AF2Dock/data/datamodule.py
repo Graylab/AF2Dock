@@ -34,6 +34,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  max_val_len: int = 1000,
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
+                 test_starting_index: int = 0,
                  ):
         """
             Args:
@@ -98,6 +99,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
             elif mode == "test":
                 test_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
                 self.data_index = test_index.query(f"{test_type}_R == True & {test_type}_L == True").reset_index(drop=True)
+                self.data_index = self.data_index.iloc[test_starting_index:].reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -335,6 +337,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  pinder_entity_seq_cluster_pkl: str = None,
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
+                 test_starting_index: int = 0,
                  **kwargs):
         super().__init__()
 
@@ -345,6 +348,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
         self.test_split = test_split
         self.test_type = test_type
+        self.test_starting_index = test_starting_index
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -357,7 +361,10 @@ class AF2DockDataModule(pl.LightningDataModule):
             self.train_dataset = dataset_gen(mode="train")
             self.eval_dataset = dataset_gen(mode="eval")
         elif stage == "test":
-            self.test_dataset = dataset_gen(mode="test", test_split=self.test_split, test_type=self.test_type)
+            self.test_dataset = dataset_gen(mode="test",
+                                            test_split=self.test_split,
+                                            test_type=self.test_type,
+                                            test_starting_index=self.test_starting_index)
         else:
             raise NotImplementedError("Prediction mode is not implemented yet")
 

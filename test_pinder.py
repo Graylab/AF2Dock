@@ -151,6 +151,7 @@ def main(args):
         cached_esm_embedding_folder=args.cached_esm_embedding_folder,
         test_split=args.pinder_test_split,
         test_type=args.pinder_test_type,
+        test_starting_index=args.starting_index,
     )
     data_module.setup('test')
     dataloader = data_module.test_dataloader()
@@ -188,7 +189,7 @@ def main(args):
         is_homomer = 2 in batch['sym_id']
         batch = tensor_tree_map(lambda x: x.to(args.model_device), batch)
         
-        out_dir_data = output_dir_base / data_id
+        out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
         if not out_dir_data.exists():
             out_dir_data.mkdir()
 
@@ -315,6 +316,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pinder_test_type", type=str, default='holo',
         choices=['holo', 'apo', 'predicted'],
+    )
+    parser.add_argument(
+        "--starting_index", type=int, default=0,
+        help="""Starting index for the test set. Used to skip the first N
+             targets in the test set"""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None
