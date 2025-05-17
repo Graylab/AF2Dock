@@ -163,7 +163,7 @@ class AF2Dock(nn.Module):
             # To allow the extra MSA stack (and later the evoformer) to
             # offload its inputs, we remove all references to them here
             input_tensors = [a, z]
-            del a, z
+            del a, z, denoised_pair
 
             # [*, N, N, C_z]
             z = self.extra_msa_stack._forward_offload(
