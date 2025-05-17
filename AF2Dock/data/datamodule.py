@@ -88,14 +88,14 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 else:
                     self.data_index = get_subsampled_train(train_index)
             elif mode == "eval":
-                val_index = get_index().query("split == 'val'").copy().reset_index(drop=True)
+                val_index = full_index.query("split == 'val'").copy().reset_index(drop=True)
                 val_index = val_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
                 val_index['total_length'] = val_index['length1'] + val_index['length2']
                 val_index = val_index[val_index['total_length'] <= max_val_len]
                 val_index = val_index.drop(columns=['length1', 'length2', 'total_length'])
                 self.data_index = val_index.reset_index(drop=True)
             elif mode == "test":
-                self.data_index = get_index().query(f"'{test_split}' == True").copy().reset_index(drop=True)
+                self.data_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -140,21 +140,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
         ini_seqential_id_to_holo_seq_sequential_id = {key: uniprot_to_holo_seq_sequential_id[ini_sequential_id_to_uniprot[key]] 
                                                       for key in ini_sequential_id_to_uniprot if ini_sequential_id_to_uniprot[key] in uniprot_to_holo_seq_sequential_id}
         return ini_seqential_id_to_holo_seq_sequential_id
-    
-    def get_rigid_body_noise_at_0(self, tr_sigma, num_struct_batch, rot_prior='uniform', rot_sigma=0.8):
-        tr_0 = torch.randn(num_struct_batch, 3) * tr_sigma
-        tr_0 = tr_0.numpy()
-        if rot_prior == 'gaussian':
-            rot_axis = torch.rand(num_struct_batch, 3)
-            rot_axis = rot_axis / torch.linalg.norm(rot_axis, dim=-1, keepdim=True)
-            rot_angle = torch.abs(torch.randn(num_struct_batch, 1) * rot_sigma) % math.pi
-            rot_0 = rot_angle * rot_axis
-            rot_0 = rot_0.numpy()
-        elif rot_prior == 'uniform':
-            rot_0 = R.random(num_struct_batch).as_rotvec().astype(np.float32)
-        else:
-            raise ValueError(f"Unknown rotation prior: {rot_prior}")
-        return tr_0, rot_0
     
     def __getitem__(self, idx):
         index_entry = self.data_index.iloc[idx]
@@ -258,7 +243,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     part_t_all_atom_positions = (part_ini_all_atom_positions[None, ...] * (1. - t[:, None, None, :]) + part_all_atom_positions[None, ...] * t[:, None, None, :])
                     part_t_all_atom_positions = part_t_all_atom_positions * part_t_all_atom_mask[..., None]
                     if part == 'lig':
-                        tr_0, rot_0 = self.get_rigid_body_noise_at_0(tr_sigma=self.config.rigid_body.tr_sigma,
+                        tr_0, rot_0 = data_utils.get_rigid_body_noise_at_0(tr_sigma=self.config.rigid_body.tr_sigma,
                                                                         num_struct_batch=num_struct_batch,
                                                                         rot_prior=self.config.rigid_body.rot_prior,
                                                                         rot_sigma=self.config.rigid_body.rot_sigma)
@@ -323,7 +308,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 device=data["aatype"].device)
             
             if self.mode == 'test':
-                data["ini_struct_feats"] = ini_struct_feats_dict
+                data["gt_features"]["ini_struct_feats"] = ini_struct_feats_dict
             
             return data
         
@@ -345,6 +330,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  batch_seed,
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
+                 test_split: str = "pinder_af2",
                  **kwargs):
         super().__init__()
 
@@ -353,6 +339,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.training_mode = training_mode
         self.cached_esm_embedding_folder = cached_esm_embedding_folder
         self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
+        self.test_split = test_split
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -364,6 +351,8 @@ class AF2DockDataModule(pl.LightningDataModule):
         if self.training_mode:
             self.train_dataset = dataset_gen(mode="train")
             self.eval_dataset = dataset_gen(mode="eval")
+        elif stage == "test":
+            self.test_dataset = dataset_gen(mode="test", test_split=self.test_split)
         else:
             raise NotImplementedError("Prediction mode is not implemented yet")
 
@@ -377,6 +366,8 @@ class AF2DockDataModule(pl.LightningDataModule):
             dataset = self.train_dataset
         elif stage == "eval":
             dataset = self.eval_dataset
+        elif stage == "test":
+            dataset = self.test_dataset
         elif stage == "predict":
             raise NotImplementedError("Predict mode is not implemented yet")
         else:
@@ -404,6 +395,9 @@ class AF2DockDataModule(pl.LightningDataModule):
         if self.eval_dataset is not None:
             return self._gen_dataloader("eval")
         return [] 
+    
+    def test_dataloader(self):
+        return self._gen_dataloader("test")
 
     def predict_dataloader(self):
         return self._gen_dataloader("predict")

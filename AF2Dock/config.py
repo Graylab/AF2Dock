@@ -248,14 +248,16 @@ def model_config(
     # else:
     #     raise ValueError("Invalid model name")
 
+    c.update(AF2Dock_config_update.copy_and_resolve_references())
+
     if long_sequence_inference:
         assert(not train)
         c.globals.offload_inference = True
         # Default to DeepSpeed memory-efficient attention kernel unless use_lma is explicitly set
         c.globals.use_deepspeed_evo_attention = True if not c.globals.use_lma else False
         c.globals.use_flash = False
-        c.model.template.offload_inference = True
-        c.model.template.template_pair_stack.tune_chunk_size = False
+        c.model.rigid_denoiser.template_pair_stack.tune_chunk_size = False
+        c.model.rigid_denoiser.rigid_denoiser_stack.tune_chunk_size = False
         c.model.extra_msa.extra_msa_stack.tune_chunk_size = False
         c.model.evoformer_stack.tune_chunk_size = False
     
@@ -275,8 +277,6 @@ def model_config(
         # If we want exact numerical parity with the original, inf can't be
         # a global constant
         set_inf(c, 1e4)
-    
-    c.update(AF2Dock_config_update.copy_and_resolve_references())
     
     if not sequential_model:
         c.model.rigid_denoiser.sequential_model = False
@@ -1018,13 +1018,33 @@ AF2Dock_config_update = mlc.ConfigDict({
             "max_msa_clusters": 17,
             "max_extra_msa": 17,
             "masked_msa_replace_fraction": 0.0,
-            "max_templates": 1
+            "max_templates": 1,
         },
         "eval": {
             "max_msa_clusters": 17,
             "max_extra_msa": 17,
             "masked_msa_replace_fraction": 0.0,
             "max_templates": 1,
+            "pinder_cate_prob": {
+                "holo": 1.0,
+                "apo": 0.0,
+                "pred": 0.0,
+            }
+        },
+        "test": {
+            "max_msa_clusters": 17,
+            "max_extra_msa": 17,
+            "masked_msa_replace_fraction": 0.0,
+            "max_templates": 1,
+            "fixed_size": True,
+            "subsample_templates": False,  # We want top templates.
+            "block_delete_msa": False,
+            "crop": False,
+            "crop_size": None,
+            "spatial_crop_prob": None,
+            "interface_threshold": None,
+            "supervised": True,
+            "uniform_recycling": False,
             "pinder_cate_prob": {
                 "holo": 1.0,
                 "apo": 0.0,

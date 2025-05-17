@@ -1,4 +1,6 @@
 import numpy as np
+import torch
+import math
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
 from biotite.structure import get_residues
@@ -159,6 +161,21 @@ def get_subsampled_train_with_seq_cluster(split_index: pd.DataFrame, split_meta:
         drop=True
     )
     return sampled_train
+
+def get_rigid_body_noise_at_0(tr_sigma, num_struct_batch, rot_prior='uniform', rot_sigma=0.8):
+    tr_0 = torch.randn(num_struct_batch, 3) * tr_sigma
+    tr_0 = tr_0.numpy()
+    if rot_prior == 'gaussian':
+        rot_axis = torch.rand(num_struct_batch, 3)
+        rot_axis = rot_axis / torch.linalg.norm(rot_axis, dim=-1, keepdim=True)
+        rot_angle = torch.abs(torch.randn(num_struct_batch, 1) * rot_sigma) % math.pi
+        rot_0 = rot_angle * rot_axis
+        rot_0 = rot_0.numpy()
+    elif rot_prior == 'uniform':
+        rot_0 = R.random(num_struct_batch).as_rotvec().astype(np.float32)
+    else:
+        raise ValueError(f"Unknown rotation prior: {rot_prior}")
+    return tr_0, rot_0
 
 def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx, tr, rot):
     com = np.mean(all_atom_positions[..., ca_idx, :], axis=-2)
