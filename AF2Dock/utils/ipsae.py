@@ -327,7 +327,6 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
                         jresnum=residues[j]['resnum']
                         dist_unique_residues_chain2[chain1][chain2].add(jresnum)
 
-    # OUT2.write("i   AlignChn ScoredChain  AlignResNum  AlignResType  AlignRespLDDT      n0chn  n0dom  n0res    d0chn     d0dom     d0res   ipTM_pae  ipSAE_d0chn ipSAE_d0dom    ipSAE \n")
     metrics_byres_columns = [
         'i', 'AlignChn', 'ScoredChain', 'AlignResNum', 'AlignResType',
         'AlignRespLDDT', 'n0chn', 'n0dom', 'n0res', 'd0chn', 'd0dom',
