@@ -35,8 +35,6 @@
 # April 6, 2025
 # MIT license: script can be modified and redistributed for non-commercial and commercial use, as long as this information is reproduced.
 
-# includes support for Boltz1 structures and structures with nucleic acids
-
 import math
 import numpy as np
 import pandas as pd
@@ -128,7 +126,7 @@ def get_info_from_atom_array(atom_array):
 
 def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
                      pae_cutoff=10, dist_cutoff=10):
-    #numres, distances, residues, chains, unique_chains, chain_pair_type
+    
     residues, cb_residues, chains = get_info_from_atom_array(atom_array)
     numres = len(residues)
     residue_types=np.array([res['res'] for res in residues])
@@ -201,6 +199,7 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
     pDockQ  = init_chainpairdict_zeros(unique_chains)
     pDockQ2 = init_chainpairdict_zeros(unique_chains)
     LIS     = init_chainpairdict_zeros(unique_chains)
+    iplddt  = init_chainpairdict_zeros(unique_chains)
 
     # pDockQ
     pDockQ_cutoff=8.0
@@ -455,6 +454,16 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
                 n0res_max[chain2][chain1]=maxn0
                 d0res_max[chain1][chain2]=maxd0
                 d0res_max[chain2][chain1]=maxd0
+    
+    # calculate iplddt
+    for chain1 in unique_chains:
+        for chain2 in unique_chains:
+            if chain1==chain2: continue
+            
+            chain1_interface = np.any(distances[chains==chain1][:, chains==chain2] < dist_cutoff, axis=1)
+            chain2_interface = np.any(distances[chains==chain2][:, chains==chain1] < dist_cutoff, axis=1)
+            iplddt[chain1][chain2] = np.mean(np.concatenate((cb_plddt[chains==chain1][chain1_interface],
+                                                             cb_plddt[chains==chain2][chain2_interface])))
 
     chainpairs=set()
     for chain1 in unique_chains:
@@ -464,7 +473,7 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
 
     metrics_columns= ['Chn1', 'Chn2', 'PAE', 'Dist', 'Type', 'ipSAE', 'ipSAE_d0chn', 'ipSAE_d0dom',
                       'ipTM_af', 'ipTM_d0chn', 'pDockQ', 'pDockQ2', 'LIS', 'n0res', 'n0chn',
-                      'n0dom', 'd0res', 'd0chn', 'd0dom', 'nres1', 'nres2', 'dist1', 'dist2', 'Model']
+                      'n0dom', 'd0res', 'd0chn', 'd0dom', 'nres1', 'nres2', 'dist1', 'dist2', 'iplddt', 'Model']
     metrics_data = []
     for pair in sorted(chainpairs):
         (chain_a, chain_b) = pair.split("-")
@@ -487,7 +496,7 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
                 int(n0res[chain1][chain2]), int(n0chn[chain1][chain2]),
                 int(n0dom[chain1][chain2]), d0res[chain1][chain2], d0chn[chain1][chain2],
                 d0dom[chain1][chain2], residues_1, residues_2,
-                dist_residues_1, dist_residues_2, data_id
+                dist_residues_1, dist_residues_2, iplddt[chain1][chain2], data_id
             ])
             if chain1 > chain2:
                 residues_1 = max(len(unique_residues_chain2[chain1][chain2]), len(unique_residues_chain1[chain2][chain1]))
@@ -507,7 +516,7 @@ def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
                     int(n0res_max[chain1][chain2]), int(n0chn[chain1][chain2]),
                     int(n0dom_max[chain1][chain2]), d0res_max[chain1][chain2], d0chn[chain1][chain2],
                     d0dom_max[chain1][chain2], residues_1, residues_2,
-                    dist_residues_1, dist_residues_2, data_id
+                    dist_residues_1, dist_residues_2, iplddt[chain1][chain2], data_id
                 ])
     
     metrics = pd.DataFrame(metrics_data, columns=metrics_columns)
