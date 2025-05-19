@@ -70,8 +70,7 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     return global_r, global_x, swap
     
 def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, out_template=False):
-    out_items_to_save = ['plddt', 'ptm_score', 'iptm_score',
-                         'weighted_ptm_score', 'aligned_confidence_probs', 
+    out_items_to_save = ['plddt', 'ptm_score', 'iptm_score', 'weighted_ptm_score', 
                          'predicted_aligned_error', 'max_predicted_aligned_error']
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
     residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
@@ -141,7 +140,7 @@ def main(args):
     np.random.seed(random_seed)
     torch.manual_seed(random_seed + 1)
     if not output_dir_base.exists():
-        output_dir_base.mkdir()
+        output_dir_base.mkdir(exsits_ok=True)
 
     # Getting dataloader
     data_module = AF2DockDataModule(
@@ -151,7 +150,9 @@ def main(args):
         cached_esm_embedding_folder=args.cached_esm_embedding_folder,
         test_split=args.pinder_test_split,
         test_type=args.pinder_test_type,
-        test_starting_index=args.starting_index,
+        test_starting_index=args.data_starting_index,
+        test_len_threshold=args.test_len_threshold,
+        test_longer_ones=args.test_longer_ones,
     )
     data_module.setup('test')
     dataloader = data_module.test_dataloader()
@@ -191,9 +192,9 @@ def main(args):
         
         out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
         if not out_dir_data.exists():
-            out_dir_data.mkdir()
+            out_dir_data.mkdir(exsits_ok=True)
 
-        for sample_idx in tqdm(range(args.num_samples)):
+        for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
             curr_atom_pos = []
             atom_masks = []
             for part in ['rec', 'lig']:
@@ -318,9 +319,23 @@ if __name__ == "__main__":
         choices=['holo', 'apo', 'predicted'],
     )
     parser.add_argument(
-        "--starting_index", type=int, default=0,
+        "--test_len_threshold", type=int, default=None,
+        help="""Length threshold for the test set"""
+    )
+    parser.add_argument(
+        "--test_longer_ones", action="store_true", default=False,
+        help="""Whether to test the ones longer than the threshold, otherwise
+             only the ones shorter than the threshold are tested, default is False"""
+    )
+    parser.add_argument(
+        "--data_starting_index", type=int, default=0,
         help="""Starting index for the test set. Used to skip the first N
              targets in the test set"""
+    )
+    parser.add_argument(
+        "--sample_starting_index", type=int, default=0,
+        help="""Starting index for samples. Used to skip the first N
+             samples for each target"""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None

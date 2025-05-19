@@ -35,6 +35,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
                  test_starting_index: int = 0,
+                 test_len_threshold: int = None,
+                 test_longer_ones: bool = False,
                  ):
         """
             Args:
@@ -99,6 +101,15 @@ class AF2DockDataset(torch.utils.data.Dataset):
             elif mode == "test":
                 test_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
                 self.data_index = test_index.query(f"{test_type}_R == True & {test_type}_L == True").reset_index(drop=True)
+                if test_len_threshold is not None:
+                    test_index = self.data_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
+                    test_index['total_length'] = test_index['length1'] + test_index['length2']
+                    if not test_longer_ones:
+                        test_index = test_index[test_index['total_length'] <= test_len_threshold]
+                    else:
+                        test_index = test_index[test_index['total_length'] > test_len_threshold]
+                    test_index = test_index.drop(columns=['length1', 'length2', 'total_length'])
+                    self.data_index = test_index.reset_index(drop=True)
                 self.data_index = self.data_index.iloc[test_starting_index:].reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
@@ -338,6 +349,8 @@ class AF2DockDataModule(pl.LightningDataModule):
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
                  test_starting_index: int = 0,
+                 test_len_threshold: int = None,
+                 test_longer_ones: bool = False,
                  **kwargs):
         super().__init__()
 
@@ -349,6 +362,8 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.test_split = test_split
         self.test_type = test_type
         self.test_starting_index = test_starting_index
+        self.test_len_threshold = test_len_threshold
+        self.test_longer_ones = test_longer_ones
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -364,7 +379,9 @@ class AF2DockDataModule(pl.LightningDataModule):
             self.test_dataset = dataset_gen(mode="test",
                                             test_split=self.test_split,
                                             test_type=self.test_type,
-                                            test_starting_index=self.test_starting_index)
+                                            test_starting_index=self.test_starting_index,
+                                            test_len_threshold=self.test_len_threshold,
+                                            test_longer_ones=self.test_longer_ones)
         else:
             raise NotImplementedError("Prediction mode is not implemented yet")
 
