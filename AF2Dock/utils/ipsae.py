@@ -124,8 +124,8 @@ def get_info_from_atom_array(atom_array):
 
     return residues, cb_residues, np.array(chains)
 
-def compute_metrices(data_id, atom_array, pae_matrix, plddt, iptm_af,
-                     pae_cutoff=10, dist_cutoff=10):
+def compute_confidence_metrics(data_id, atom_array, pae_matrix, plddt, iptm_af,
+                                pae_cutoff=10, dist_cutoff=10):
     
     residues, cb_residues, chains = get_info_from_atom_array(atom_array)
     numres = len(residues)
