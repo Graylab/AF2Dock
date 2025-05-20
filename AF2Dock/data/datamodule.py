@@ -100,9 +100,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 self.data_index = val_index.reset_index(drop=True)
             elif mode == "test":
                 test_index = full_index.query(f"{test_split} == True").copy().reset_index(drop=True)
-                self.data_index = test_index.query(f"{test_type}_R == True & {test_type}_L == True").reset_index(drop=True)
+                test_index = test_index.query(f"{test_type}_R == True & {test_type}_L == True").reset_index(drop=True)
                 if test_len_threshold is not None:
-                    test_index = self.data_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
+                    test_index = test_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
                     test_index['total_length'] = test_index['length1'] + test_index['length2']
                     if not test_longer_ones:
                         test_index = test_index[test_index['total_length'] <= test_len_threshold]

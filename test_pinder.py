@@ -75,10 +75,10 @@ def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, o
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
     residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
     chain_index = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy() - 1
+    template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
     
     if out_template:
         template_all_atom_pos_out = batch['template_all_atom_positions'].clone().detach().cpu().numpy()[0][0][..., -1]
-        template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
         prot_template = protein.Protein(
             aatype=aatype,
             atom_positions=template_all_atom_pos_out,
@@ -106,6 +106,16 @@ def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, o
         )
         with open(outpath / (outprefix+'.pdb'), 'w') as fp:
             fp.write(protein.to_pdb(prot_pred))
+        prot_pred_masked = protein.Protein(
+            aatype=aatype,
+            atom_positions=all_atom_pos_out,
+            atom_mask=template_all_atom_mask_out,
+            residue_index=residue_index,
+            b_factors=b_factors_out,
+            chain_index=chain_index,
+        )
+        with open(outpath / (outprefix+'_masked.pdb'), 'w') as fp:
+            fp.write(protein.to_pdb(prot_pred_masked))
         if out_conf:
             out = {k: v for k, v in out.items() if k in out_items_to_save}
             with open(outpath / (outprefix+'_out.pkl'), "wb") as fp:
@@ -140,7 +150,7 @@ def main(args):
     np.random.seed(random_seed)
     torch.manual_seed(random_seed + 1)
     if not output_dir_base.exists():
-        output_dir_base.mkdir(exsits_ok=True)
+        output_dir_base.mkdir(exist_ok=True)
 
     # Getting dataloader
     data_module = AF2DockDataModule(
@@ -185,6 +195,7 @@ def main(args):
     ca_idx = residue_constants.atom_order["CA"]
     
     for data_idx, batch in tqdm(enumerate(dataloader)):
+        data_idx = data_idx + args.data_starting_index
         gt_features = batch.pop("gt_features")
         data_id = dataloader.dataset.data_index.iloc[batch["batch_idx"].item()]['id']
         is_homomer = 2 in batch['sym_id']
@@ -192,7 +203,7 @@ def main(args):
         
         out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
         if not out_dir_data.exists():
-            out_dir_data.mkdir(exsits_ok=True)
+            out_dir_data.mkdir(exist_ok=True)
 
         for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
             curr_atom_pos = []
