@@ -228,7 +228,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                     for resi in part_interface_resi_split if int(resi) in resolved_part_pinder_resi]
                         part_interface_resi_idx_mapped = [idx for idx in part_interface_resi_idx if idx in part_ini_to_holo_map.values()]
                         
-                        if len(part_interface_resi_idx_mapped) / len(part_interface_resi_split) > 0.5:
+                        if len(part_interface_resi_idx_mapped) / len(part_interface_resi_split) > 0.5 or self.mode == 'test':
                             part_holo_ini_overlap_range = [min(list(part_ini_to_holo_map.values())), max(list(part_ini_to_holo_map.values()))]
                             part_all_atom_positions = part_all_atom_positions[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]

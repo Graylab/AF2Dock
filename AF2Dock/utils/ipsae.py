@@ -38,6 +38,7 @@
 import math
 import numpy as np
 import pandas as pd
+from biotite import structure as struc
 
 # Define the ptm and d0 functions
 def ptm_func(x,d0):
@@ -126,6 +127,23 @@ def get_info_from_atom_array(atom_array):
 
 def compute_confidence_metrics(data_id, atom_array, pae_matrix, plddt, iptm_af,
                                 pae_cutoff=10, dist_cutoff=10):
+    # correct for positions without structural information, only works gap in the middle
+    if struc.get_residue_count(atom_array) != pae_matrix.shape[0]:
+        print(f"Mismatch between atom_array and pae_matrix dimensions for {data_id}. Trying to correct")
+        chain_ids = struc.get_chains(atom_array)
+        chains = [atom_array[atom_array.chain_id == chain_id] for chain_id in chain_ids]
+        chain_res_masks = []
+        for chain in chains:
+            chain_res_nums, _ = struc.get_residues(chain)
+            chain_full_res_nums = np.arange(chain_res_nums[0], chain_res_nums[-1] + 1)
+            chain_res_mask = np.isin(chain_full_res_nums, chain_res_nums)
+            chain_res_masks.append(chain_res_mask)
+        full_res_mask = np.concatenate(chain_res_masks)
+        if struc.get_residue_count(atom_array) != full_res_mask.sum():
+            raise ValueError("Mismatch between atom_array and pae_matrix dimensions and unable to correct.")
+        else:
+            plddt = plddt[full_res_mask]
+            pae_matrix = pae_matrix[full_res_mask][:, full_res_mask]
     
     residues, cb_residues, chains = get_info_from_atom_array(atom_array)
     numres = len(residues)
