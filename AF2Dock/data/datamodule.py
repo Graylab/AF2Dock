@@ -109,8 +109,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     else:
                         test_index = test_index[test_index['total_length'] > test_len_threshold]
                     test_index = test_index.drop(columns=['length1', 'length2', 'total_length'])
-                    self.data_index = test_index.reset_index(drop=True)
-                self.data_index = self.data_index.iloc[test_starting_index:].reset_index(drop=True)
+                    test_index = test_index.reset_index(drop=True)
+                self.data_index = test_index.iloc[test_starting_index:].reset_index(drop=True)
             entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
             self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
             self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
