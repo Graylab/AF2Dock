@@ -71,7 +71,8 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     
 def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, out_template=False):
     out_items_to_save = ['plddt', 'ptm_score', 'iptm_score', 'weighted_ptm_score', 
-                         'predicted_aligned_error', 'max_predicted_aligned_error']
+                         'predicted_aligned_error', 'max_predicted_aligned_error',
+                         'final_atom_positions', 'final_atom_mask']
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
     residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
     chain_index = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy() - 1
@@ -272,7 +273,8 @@ def main(args):
                     curr_atom_pos = updated_atom_pos
                     
                     if args.save_intermediate_template or args.save_intermediate_pred:
-                        write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template)
+                        write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, 
+                                     out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or time_idx == 0)
                     # if data_idx == 0:
                     #     write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=True, out_conf=False, out_template=True)
                         
