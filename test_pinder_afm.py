@@ -105,6 +105,7 @@ def main(args):
             data_idx = data_idx + args.data_starting_index
             gt_features = batch.pop("gt_features")
             data_id = dataloader.dataset.data_index.iloc[batch["batch_idx"].item()]['id']
+            is_homomer = 2 in batch['sym_id']
             batch = tensor_tree_map(lambda x: x.to(args.model_device), batch)
             
             out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
@@ -136,13 +137,25 @@ def main(args):
                 batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().to(
                     batch['template_all_atom_mask'].dtype).to(batch['template_all_atom_mask'].device)
                 
-                template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
-                assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
-                batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().to(
-                    batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
+                total_steps =  args.num_steps
                 
-                out = model(batch)
-                out = tensor_tree_map(lambda x: x.cpu(), out)
+                for time_idx in range(total_steps):
+                    t = time_idx / total_steps
+                    s = t + 1 / total_steps
+                
+                    template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
+                    assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
+                    batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().to(
+                        batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
+                    
+                    out = model(batch)
+                    out = tensor_tree_map(lambda x: x.cpu(), out)
+                    
+                    if not args.interpolate or not args.unmasked:
+                        break
+                    else:
+                        if time_idx < total_steps - 1:
+                            curr_atom_pos = inference_utils.update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)     
 
                 if args.unmasked:
                     inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=True)
@@ -163,6 +176,10 @@ if __name__ == "__main__":
         help="""Number of samples to generate per target"""
     )
     parser.add_argument(
+        "--num_steps", type=int, default=10,
+        help="""Number of steps to the interpolation process"""
+    )
+    parser.add_argument(
         "--model_device", type=str, default="cuda",
         help="""Name of the device on which to run the model. Any valid torch
              device name is accepted (e.g. "cpu", "cuda:0")"""
@@ -174,6 +191,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--unmasked", action="store_true", default=False,
         help="""Whether to use the unmasked version of AlphaFold."""
+    )
+    parser.add_argument(
+        "--interpolate", action="store_true", default=False,
+        help="""Whether to interpolate the template inputs for multiple steps"""
     )
     parser.add_argument(
         "--pinder_test_split", type=str, default='pinder_af2',
