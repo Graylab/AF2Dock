@@ -51,8 +51,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
         if cached_esm_embedding_folder is not None:
             self.cached_esm_embedding_folder = Path(cached_esm_embedding_folder)
         else:
-            if self.mode == "train" or self.mode == "eval" or self.mode == "test":
-                raise ValueError("cached_esm_embedding_folder must be provided for train, eval and test modes")
             self.cached_esm_embedding_folder = None
         self.mode = mode
 
@@ -178,7 +176,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 all_atom_mask_dict = {}
                 seq_dict = {}
                 struct_feats_at_t_dict = {}
-                esm_embedding_dict = {}
+                if self.cached_esm_embedding_folder is not None:
+                    esm_embedding_dict = {}
                 if self.mode == 'test':
                     ini_struct_feats_dict = {}
                 
@@ -208,9 +207,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
                                                                                                  part_resi_is_resolved,
                                                                                                  getattr(ps, f'native_{abbr}').atom_array)
-                    part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
-                    part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
-                    assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
+                    if self.cached_esm_embedding_folder is not None:
+                        part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
+                        part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
+                        assert part_esm_embedding.shape[0] == len(part_seq), "Mismatch between ESM embedding and sequence length"
                     
                     # Get the initial structure for the receptor and ligand, which are processed in data pipeline as templates
                     part_cate = self.get_ini_struct_cate(cate_probs_ori, {cate: getattr(ps, f"{cate}_{full_n}") is not None for cate in cate_probs_ori.keys()})
@@ -234,7 +234,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             part_all_atom_mask = part_all_atom_mask[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_seq = part_seq[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             part_resi_is_resolved = part_resi_is_resolved[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
-                            part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
+                            if self.cached_esm_embedding_folder is not None:
+                                part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             
                             part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
                             indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
@@ -282,7 +283,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     all_atom_positions_dict[part] = part_all_atom_positions
                     all_atom_mask_dict[part] = part_all_atom_mask
                     seq_dict[part] = part_seq
-                    esm_embedding_dict[part] = part_esm_embedding
+                    if self.cached_esm_embedding_folder is not None:
+                        esm_embedding_dict[part] = part_esm_embedding
                     struct_feats_at_t_dict[part] = part_feats_at_t
                     if self.mode == 'test':
                         part_ini_struct_feats = {
@@ -301,7 +303,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     max_templates=num_struct_batch,
                 )
 
-                data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
+                if self.cached_esm_embedding_folder is not None:
+                    data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
                 data["t"] = t
                 data["tr_0"] = tr_0
                 data["rot_0"] = rot_0
