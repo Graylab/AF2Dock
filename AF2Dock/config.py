@@ -1062,9 +1062,9 @@ AF2Dock_config_update = mlc.ConfigDict({
             "crop_size": 384,
             "spatial_crop_prob": 1.0,
             "pinder_cate_prob": {
-                "holo": 0.7,
-                "apo": 0.15,
-                "pred": 0.15,
+                "holo": 0.4,
+                "apo": 0.3,
+                "pred": 0.3,
             }
         },
         "rigid_body": {
