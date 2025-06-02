@@ -1130,7 +1130,8 @@ AF2Dock_config_update = mlc.ConfigDict({
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,
             "sequential_model": True,
-            "use_rigid_mask": False
+            "use_rigid_mask": False,
+            "use_esm": True,
         },
         "recycle_early_stop_tolerance": -1
     },

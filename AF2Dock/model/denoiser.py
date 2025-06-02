@@ -369,8 +369,10 @@ class TemplatePairEmbedderMultimer(nn.Module):
         c_dgram: int,
         c_aatype: int,
         c_esm: int,
+        use_esm: bool,
     ):
         super(TemplatePairEmbedderMultimer, self).__init__()
+        self.use_esm = use_esm
 
         self.dgram_linear = Linear(c_dgram, c_out, init='relu')
         self.aatype_linear_1 = Linear(c_aatype, c_out, init='relu')
@@ -383,8 +385,9 @@ class TemplatePairEmbedderMultimer(nn.Module):
         self.y_linear = Linear(1, c_out, init='relu')
         self.z_linear = Linear(1, c_out, init='relu')
         self.backbone_mask_linear = Linear(1, c_out, init='relu')
-        self.esm_embedding_linear_1 = Linear(c_esm, c_out, init='relu')
-        self.esm_embedding_linear_2 = Linear(c_esm, c_out, init='relu')
+        if self.use_esm:
+            self.esm_embedding_linear_1 = Linear(c_esm, c_out, init='relu')
+            self.esm_embedding_linear_2 = Linear(c_esm, c_out, init='relu')
 
     def forward(self,
         template_dgram: torch.Tensor,
@@ -419,8 +422,9 @@ class TemplatePairEmbedderMultimer(nn.Module):
        
         act = add(act, self.backbone_mask_linear(backbone_mask_2d[..., None].to(dtype=query_embedding.dtype)), inplace_safe)
 
-        act = add(act, self.esm_embedding_linear_1(esm_embedding[..., None, :, :]), inplace_safe)
-        act = add(act, self.esm_embedding_linear_2(esm_embedding[..., None, :]), inplace_safe)
+        if self.use_esm:
+            act = add(act, self.esm_embedding_linear_1(esm_embedding[..., None, :, :]), inplace_safe)
+            act = add(act, self.esm_embedding_linear_2(esm_embedding[..., None, :]), inplace_safe)
 
         query_embedding = self.query_embedding_layer_norm(query_embedding)
         act = add(act, self.query_embedding_linear(query_embedding), inplace_safe)
@@ -434,6 +438,7 @@ class PairDenoiser(nn.Module):
         self.config = config
         self.template_pair_embedder = TemplatePairEmbedderMultimer(
             **config["template_pair_embedder"],
+            use_esm=config.use_esm,
         )
         self.template_pair_stack = TemplatePairStack(
             **config["template_pair_stack"],
@@ -470,7 +475,10 @@ class PairDenoiser(nn.Module):
         full_pair = 0.0
         
         n_templ = batch["template_aatype"].shape[templ_dim]
-        esm_embedding = batch.pop("esm_embedding")
+        if self.config.use_esm:
+            esm_embedding = batch.pop("esm_embedding")
+        else:
+            esm_embedding = None
         for i in range(n_templ):
             idx = batch["template_aatype"].new_tensor(i)
             single_template_feats = tensor_tree_map(
