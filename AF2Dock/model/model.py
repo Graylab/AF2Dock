@@ -33,7 +33,7 @@ from openfold.utils.tensor_utils import (
     add,
     tensor_tree_map,
 )
-from AF2Dock.model.denoiser import RigidDenoiser
+from AF2Dock.model.denoiser import PairDenoiser
 from AF2Dock.model.heads import AuxiliaryHeads
 
 class AF2Dock(nn.Module):
@@ -48,7 +48,7 @@ class AF2Dock(nn.Module):
 
         self.globals = config.globals
         self.config = config.model
-        self.rigid_denoiser_config = self.config.rigid_denoiser
+        self.pair_denoiser_config = self.config.pair_denoiser
         self.extra_msa_config = self.config.extra_msa
 
         # Main trunk + structure module
@@ -56,8 +56,8 @@ class AF2Dock(nn.Module):
             **self.config["input_embedder"]
         )
 
-        self.rigid_denoiser = RigidDenoiser(
-            self.rigid_denoiser_config,
+        self.pair_denoiser = PairDenoiser(
+            self.pair_denoiser_config,
         )
         
         self.extra_msa_embedder = ExtraMSAEmbedder(
@@ -79,12 +79,15 @@ class AF2Dock(nn.Module):
             self.config["heads"],
         )
 
-    def rigid_denoise_ini_struct(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
+    def embed_and_denoise(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
         asym_id = feats["asym_id"]
-        inter_chain_mask = (
-            asym_id[..., None] != asym_id[..., None, :]
-        ) * pair_mask
-        denoised_pair = self.rigid_denoiser(
+        if self.pair_denoiser_config.use_rigid_mask:
+            inter_chain_mask = (
+                asym_id[..., None] != asym_id[..., None, :]
+            ) * pair_mask
+        else:
+            inter_chain_mask = pair_mask.clone()
+        denoised_pair = self.pair_denoiser(
             batch,
             z,
             pair_mask.to(dtype=z.dtype),
@@ -128,14 +131,15 @@ class AF2Dock(nn.Module):
         # z: [*, N, N, C_z]
         m, z = self.input_embedder(feats)
 
-        # rigid denoise the initial configurations
+        # embed and denoise the initial configurations
         template_feats = {
             k: v for k, v in feats.items() if k.startswith("template_")
         }
-        template_feats["esm_embedding"] = feats["esm_embedding"].unsqueeze(no_batch_dims)
+        if self.pair_denoiser_config.use_esm:
+            template_feats["esm_embedding"] = feats["esm_embedding"].unsqueeze(no_batch_dims)
         template_feats["times"] = feats["t"]
 
-        denoised_pair = self.rigid_denoise_ini_struct(
+        denoised_pair = self.embed_and_denoise(
             template_feats,
             feats,
             z,
@@ -144,7 +148,7 @@ class AF2Dock(nn.Module):
             inplace_safe=inplace_safe,
         )
 
-        if self.rigid_denoiser_config.sequential_model:
+        if self.pair_denoiser_config.sequential_model:
             z = denoised_pair
         else:
             # [*, N, N, C_z]
@@ -163,7 +167,7 @@ class AF2Dock(nn.Module):
             # To allow the extra MSA stack (and later the evoformer) to
             # offload its inputs, we remove all references to them here
             input_tensors = [a, z]
-            del a, z
+            del a, z, denoised_pair
 
             # [*, N, N, C_z]
             z = self.extra_msa_stack._forward_offload(

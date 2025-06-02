@@ -431,11 +431,11 @@ def generate_template_translate_dict(model):
         "pair_transition": PairTransitionParams(b.pair_transition),
     }
 
-    tps_blocks = model.rigid_denoiser.template_pair_stack.blocks
+    tps_blocks = model.pair_denoiser.template_pair_stack.blocks
     tps_blocks_params = import_weights.stacked(
         [TemplatePairBlockParams(b) for b in tps_blocks]
     )
-    temp_embedder = model.rigid_denoiser
+    temp_embedder = model.pair_denoiser
     template_param_dict = {
         "template_embedding": {
             "single_template_embedding": {
