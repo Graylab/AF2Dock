@@ -256,8 +256,8 @@ def model_config(
         # Default to DeepSpeed memory-efficient attention kernel unless use_lma is explicitly set
         c.globals.use_deepspeed_evo_attention = True if not c.globals.use_lma else False
         c.globals.use_flash = False
-        c.model.rigid_denoiser.template_pair_stack.tune_chunk_size = False
-        c.model.rigid_denoiser.rigid_denoiser_stack.tune_chunk_size = False
+        c.model.pair_denoiser.template_pair_stack.tune_chunk_size = False
+        c.model.pair_denoiser.pair_denoiser_stack.tune_chunk_size = False
         c.model.extra_msa.extra_msa_stack.tune_chunk_size = False
         c.model.evoformer_stack.tune_chunk_size = False
     
@@ -279,9 +279,9 @@ def model_config(
         set_inf(c, 1e4)
     
     if not sequential_model:
-        c.model.rigid_denoiser.sequential_model = False
-        c.model.rigid_denoiser.c_r = c_t
-        c.model.rigid_denoiser.rigid_denoiser_stack.c_r = c_t
+        c.model.pair_denoiser.sequential_model = False
+        c.model.pair_denoiser.c_r = c_t
+        c.model.pair_denoiser.pair_denoiser_stack.c_r = c_t
 
     enforce_config_constraints(c)
 
@@ -1074,7 +1074,7 @@ AF2Dock_config_update = mlc.ConfigDict({
         }
     },
     "model": {
-        "rigid_denoiser": {
+        "pair_denoiser": {
             "distogram": {
                 "min_bin": 3.25,
                 "max_bin": 50.75,
@@ -1109,7 +1109,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 # "num_transitions": 2,
                 # "transition_expansion_factor": 2
             },
-            "rigid_denoiser_stack": {
+            "pair_denoiser_stack": {
                 "c_r": c_z,
                 "c_cond": c_t,
                 "c_hidden_tri_att": 32,

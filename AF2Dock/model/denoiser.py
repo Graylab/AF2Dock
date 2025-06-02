@@ -49,7 +49,7 @@ from AF2Dock.model.triangular import (
 from AF2Dock.model.transition import Transition
 from AF2Dock.model.conditioning import ConditionWrapper, PairConditioning
 
-class RigidDenoiserStackBlock(nn.Module):
+class PairDenoiserStackBlock(nn.Module):
     def __init__(
         self,
         c_r: int,
@@ -63,7 +63,7 @@ class RigidDenoiserStackBlock(nn.Module):
         inf: float,
         **kwargs,
     ):
-        super(RigidDenoiserStackBlock, self).__init__()
+        super(PairDenoiserStackBlock, self).__init__()
 
         self.c_r = c_r
         self.c_cond = c_cond
@@ -238,7 +238,7 @@ class RigidDenoiserStackBlock(nn.Module):
         return single
 
 
-class RigidDenoiserStack(nn.Module):
+class PairDenoiserStack(nn.Module):
     """
     Implements Algorithm 16.
     """
@@ -277,13 +277,13 @@ class RigidDenoiserStack(nn.Module):
                 Number of blocks per activation checkpoint. None disables
                 activation checkpointing
         """
-        super(RigidDenoiserStack, self).__init__()
+        super(PairDenoiserStack, self).__init__()
 
         self.blocks_per_ckpt = blocks_per_ckpt
 
         self.blocks = nn.ModuleList()
         for _ in range(no_blocks):
-            block = RigidDenoiserStackBlock(
+            block = PairDenoiserStackBlock(
                 c_r=c_r,
                 c_cond=c_cond,
                 c_hidden_tri_att=c_hidden_tri_att,
@@ -427,9 +427,9 @@ class TemplatePairEmbedderMultimer(nn.Module):
 
         return act
 
-class RigidDenoiser(nn.Module):
+class PairDenoiser(nn.Module):
     def __init__(self, config):
-        super(RigidDenoiser, self).__init__()
+        super(PairDenoiser, self).__init__()
         
         self.config = config
         self.template_pair_embedder = TemplatePairEmbedderMultimer(
@@ -444,8 +444,8 @@ class RigidDenoiser(nn.Module):
         self.pair_conditioning_stack = TemplatePairStack(
             **config["template_pair_stack"],
         )
-        self.rigid_denoiser_stack = RigidDenoiserStack(
-            **config["rigid_denoiser_stack"],
+        self.pair_denoiser_stack = PairDenoiserStack(
+            **config["pair_denoiser_stack"],
         )
 
         self.linear_tp = Linear(config.c_t, config.c_r)
@@ -555,7 +555,7 @@ class RigidDenoiser(nn.Module):
             cond = torch.nn.functional.relu(cond)
             cond = self.linear_cond(cond)
             
-            tp = self.rigid_denoiser_stack(
+            tp = self.pair_denoiser_stack(
                 tp,
                 cond,
                 padding_mask=padding_mask.unsqueeze(-3).to(dtype=z.dtype),

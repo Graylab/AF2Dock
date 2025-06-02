@@ -166,6 +166,7 @@ def get_rigid_body_noise_at_0(tr_sigma, num_struct_batch, rot_prior='uniform', r
     tr_0 = torch.randn(num_struct_batch, 3) * tr_sigma
     tr_0 = tr_0.numpy()
     if rot_prior == 'gaussian':
+        # approximating IGSO3 at small angle sigma
         rot_axis = torch.rand(num_struct_batch, 3)
         rot_axis = rot_axis / torch.linalg.norm(rot_axis, dim=-1, keepdim=True)
         rot_angle = torch.abs(torch.randn(num_struct_batch, 1) * rot_sigma) % math.pi
