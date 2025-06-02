@@ -81,9 +81,12 @@ class AF2Dock(nn.Module):
 
     def embed_and_denoise(self, batch, feats, z, pair_mask, templ_dim, inplace_safe):
         asym_id = feats["asym_id"]
-        inter_chain_mask = (
-            asym_id[..., None] != asym_id[..., None, :]
-        ) * pair_mask
+        if self.pair_denoiser_config.use_rigid_mask:
+            inter_chain_mask = (
+                asym_id[..., None] != asym_id[..., None, :]
+            ) * pair_mask
+        else:
+            inter_chain_mask = pair_mask.clone()
         denoised_pair = self.pair_denoiser(
             batch,
             z,
