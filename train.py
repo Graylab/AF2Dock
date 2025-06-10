@@ -55,7 +55,7 @@ from AF2Dock.utils import train_utils
 logger = logging.getLogger(__name__)
 
 class AF2DockWrapper(pl.LightningModule):
-    def __init__(self, config, low_prec=False, deepspeed=False, finetune_lr=False):
+    def __init__(self, config, low_prec=False, deepspeed=False, finetune_lr=None):
         super(AF2DockWrapper, self).__init__()
         self.config = config
         self.low_prec = low_prec
@@ -257,7 +257,7 @@ class AF2DockWrapper(pl.LightningModule):
                 if 'initial_lr' not in group:
                     group['initial_lr'] = learning_rate
 
-        if not self.finetune_lr:
+        if self.finetune_lr is None:
             lr_scheduler = AlphaFoldLRScheduler(
                 optimizer,
                 last_epoch=self.last_lr_step
@@ -266,8 +266,8 @@ class AF2DockWrapper(pl.LightningModule):
             lr_scheduler = AlphaFoldLRScheduler(
                 optimizer,
                 last_epoch=self.last_lr_step,
-                base_lr=0.0005,
-                max_lr=0.0005,
+                base_lr=self.finetune_lr,
+                max_lr=self.finetune_lr,
                 warmup_no_steps=1,
             )
 
@@ -366,6 +366,7 @@ def main(args):
                 for k in ema_params.keys():
                     model_module.ema.params[k] = ema_params[k].clone().detach()
             logging.info("Successfully loaded model weights...")
+            del sd, ema_params
 
         else:  # Loads a checkpoint to start from a specific time step
             if os.path.isdir(args.resume_from_ckpt):
@@ -375,6 +376,7 @@ def main(args):
             last_global_step = int(sd['global_step'])
             model_module.resume_last_lr_step(last_global_step)
             logging.info("Successfully loaded last lr step...")
+            del sd
 
     if args.resume_from_jax_params:
         model_module.load_from_jax(args.resume_from_jax_params)
@@ -558,8 +560,8 @@ if __name__ == "__main__":
         help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
     )
     parser.add_argument(
-        "--finetune_lr", action="store_true", default=False,
-        help="""Whether to use finetune learning rate"""
+        "--finetune_lr", type=float, default=None,
+        help="""Finetune learning rate. Default is None, meaning no finetuning."""
     )
     parser.add_argument(
         "--log_performance", type=bool_type, default=False,
