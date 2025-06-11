@@ -220,7 +220,6 @@ class DataPipelineMultimer:
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
             chain_features = self._process_single_chain(
@@ -257,7 +256,6 @@ class DataPipelineMultimer:
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
             chain_features = self._process_single_chain(
