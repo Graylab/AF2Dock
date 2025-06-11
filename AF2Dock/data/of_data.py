@@ -14,6 +14,7 @@
 # limitations under the License.
 
 from typing import MutableMapping, Tuple
+import collections
 import numpy as np
 from openfold.data import (
     parsers,
@@ -153,6 +154,57 @@ def merge_features(all_chain_features, max_templates):
 
     return np_example
 
+def add_assembly_features(
+    all_chain_features: MutableMapping[str, FeatureDict],
+) -> MutableMapping[str, FeatureDict]:
+    """Add features to distinguish between chains. Modified to maintain order.
+
+    Args:
+      all_chain_features: A dictionary which maps chain_id to a dictionary of
+        features for each chain.
+
+    Returns:
+      all_chain_features: A dictionary which maps strings of the form
+        `<seq_id>_<sym_id>` to the corresponding chain features. E.g. two
+        chains from a homodimer would have keys A_1 and A_2. Two chains from a
+        heterodimer would have keys A_1 and B_1.
+    """
+    # First pass: determine entity_id for each unique sequence
+    seq_to_entity_id = {}
+    for chain_id, chain_features in all_chain_features.items():
+      seq = str(chain_features['sequence'])
+      if seq not in seq_to_entity_id:
+        seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
+    
+    # Track how many times we've seen each entity (for sym_id assignment)
+    entity_counter = collections.defaultdict(int)
+    
+    # Process chains in original order
+    new_all_chain_features = {}
+    chain_id = 1
+    for original_chain_id, chain_features in all_chain_features.items():
+      seq = str(chain_features['sequence'])
+      entity_id = seq_to_entity_id[seq]
+      entity_counter[entity_id] += 1
+      sym_id = entity_counter[entity_id]
+      
+      new_all_chain_features[
+          f'{data_pipeline.int_id_to_str_id(entity_id)}_{sym_id}'] = chain_features
+      
+      seq_length = chain_features['seq_length']
+      chain_features['asym_id'] = (
+          chain_id * np.ones(seq_length)
+      ).astype(np.int64)
+      chain_features['sym_id'] = (
+          sym_id * np.ones(seq_length)
+      ).astype(np.int64)
+      chain_features['entity_id'] = (
+          entity_id * np.ones(seq_length)
+      ).astype(np.int64)
+      chain_id += 1
+
+    return new_all_chain_features
+
 class DataPipelineMultimer:
     """Assembles the input features."""
 
@@ -236,7 +288,7 @@ class DataPipelineMultimer:
             )
             all_chain_features[desc] = chain_features
 
-        all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
+        all_chain_features = add_assembly_features(all_chain_features)
 
         np_example = merge_features(all_chain_features, max_templates)
 
@@ -276,7 +328,7 @@ class DataPipelineMultimer:
 
             all_chain_features[desc] = chain_features
 
-        all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
+        all_chain_features = add_assembly_features(all_chain_features)
 
         np_example = merge_features(all_chain_features, max_templates)
 

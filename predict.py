@@ -73,11 +73,14 @@ def main(args):
     for data_idx in tqdm(len(predict_targets)):
         data_idx = data_idx + args.data_starting_index
         target_row = predict_targets.iloc[data_idx]
-        batch = inference_utils.load_data(target_row, config, esm_client, args.model_device)
+        batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
+                                                                                                           config, 
+                                                                                                           esm_client, 
+                                                                                                           args.model_device)
         
         data_id = target_row['id']
         is_homomer = 2 in batch['sym_id']
-        batch = tensor_tree_map(lambda x: x.to(args.model_device), batch)
+        batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
         
         out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
         if not out_dir_data.exists():
@@ -87,8 +90,8 @@ def main(args):
             curr_atom_pos = []
             atom_masks = []
             for part in ['rec', 'lig']:
-                part_0_all_atom_mask = gt_features["ini_struct_feats"][part]["ini_all_atom_mask"][0].numpy()[None, ...]
-                part_0_all_atom_positions = gt_features["ini_struct_feats"][part]["ini_all_atom_positions"][0].numpy()[None, ...]
+                part_0_all_atom_mask = ini_struct_feats_dict[part]["ini_all_atom_mask"][None, ...]
+                part_0_all_atom_positions = ini_struct_feats_dict[part]["ini_all_atom_positions"][None, ...]
                 part_com = np.mean(part_0_all_atom_positions[..., ca_idx, :], axis=-2)
                 part_0_all_atom_positions = part_0_all_atom_positions - part_com[:, None, None, :]
                 if part == 'lig':
@@ -129,9 +132,11 @@ def main(args):
                     
                     if args.save_intermediate_template or args.save_intermediate_pred or time_idx == 0:
                         inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, 
-                                                     out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or time_idx == 0)
- 
-            inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=args.save_intermediate_template)
+                                                     out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or time_idx == 0,
+                                                     residue_index=original_residue_index, asym_id=original_asym_id)
+
+            inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=args.save_intermediate_template,
+                                         residue_index=original_residue_index, asym_id=original_asym_id)
 
         batch = tensor_tree_map(lambda x: x.cpu(), batch)
 

@@ -1,5 +1,6 @@
 import pickle
 import logging
+import collections
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
@@ -80,13 +81,18 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     
     return global_r, global_x, swap
     
-def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, out_template=False):
+def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True,
+                 out_template=False, residue_index=None, asym_id=None):
     out_items_to_save = ['plddt', 'ptm_score', 'iptm_score', 'weighted_ptm_score', 
                          'predicted_aligned_error', 'max_predicted_aligned_error',
                          'final_atom_positions', 'final_atom_mask']
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
-    residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
-    chain_index = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy() - 1
+    if residue_index is None:
+        residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy()
+    residue_index = residue_index + 1
+    if asym_id is None:
+        asym_id = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy()
+    chain_index = asym_id - 1
     template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
     
     if out_template:
@@ -204,6 +210,48 @@ def get_seqs(target_row, part_struc, part, chains):
     
     return part_seq_full_list, part_resi_is_resolved_list
 
+def adjust_assembly_features(data, seq_dict, index_offset=200):
+
+    seq_all_dict = {part:[seq for key, seq in seq_dict.items() if key.startswith(part)] for part in ['rec', 'lig']}
+    seq_to_entity_id = {}
+    for part, seqs in seq_all_dict.items():
+      seq = ''.join(seqs)
+      if seq not in seq_to_entity_id:
+        seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
+
+    new_asym_id = []
+    new_sym_id = []
+    new_entity_id = []
+    residue_index_offset_list = []
+    
+    entity_counter = collections.defaultdict(int)
+    chain_id = 1
+    for part in ['rec', 'lig']:
+        seq = ''.join(seq_all_dict[part])
+        entity_id = seq_to_entity_id[seq]
+        entity_counter[entity_id] += 1
+        sym_id = entity_counter[entity_id]
+        
+        seq_length = len(seq)
+        new_asym_id.append((chain_id * np.ones(seq_length)).astype(np.int64))
+        new_sym_id.append((sym_id * np.ones(seq_length)).astype(np.int64))
+        new_entity_id.append((entity_id * np.ones(seq_length)).astype(np.int64))
+        chain_id += 1
+
+        part_chain_lengths = [len(chain_seq) for chain_seq in seq_all_dict[part]]
+        part_chain_offset = [index_offset * idx for idx in range(len(part_chain_lengths))]
+        part_residue_index_offset = np.concatenate([np.ones(length) * offset for length, offset in zip(part_chain_lengths, part_chain_offset)])
+        residue_index_offset_list.append(part_residue_index_offset)
+    
+    data['asym_id'] =  data['asym_id'].new_tensor(np.concatenate(new_asym_id, axis=0)[..., None])
+    data['sym_id'] =  data['sym_id'].new_tensor(np.concatenate(new_sym_id, axis=0)[..., None])
+    data['entity_id'] =  data['entity_id'].new_tensor(np.concatenate(new_entity_id, axis=0)[..., None])
+    
+    residue_index_offset = data['residue_index'].new_tensor(np.concatenate(residue_index_offset_list, axis=0)[..., None])
+    data['residue_index'] = data['residue_index'] + residue_index_offset
+
+    return data
+
 def load_data(target_row, config, esm_client=None, device='cuda'):
     data_pipeline = of_data.DataPipelineMultimer()
     feat_pipeline = feature_pipeline.FeaturePipeline(config)
@@ -282,4 +330,9 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
         data, mode='predict', is_multimer=True
     )
     
+    original_asym_id = data['asym_id'].clone().detach().cpu()
+    original_residue_index = data['residue_index'].clone().detach().cpu()
     
+    data = adjust_assembly_features(data, seq_dict)
+    
+    return data, ini_struct_feats_dict, original_asym_id, original_residue_index
