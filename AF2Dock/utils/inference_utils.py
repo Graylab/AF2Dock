@@ -239,7 +239,8 @@ def adjust_assembly_features(data, seq_dict, index_offset=200):
         chain_id += 1
 
         part_chain_lengths = [len(chain_seq) for chain_seq in seq_all_dict[part]]
-        part_chain_offset = [index_offset * idx for idx in range(len(part_chain_lengths))]
+        part_chain_end_idx = np.insert(np.cumsum(part_chain_lengths)[:-1], 0, 0)
+        part_chain_offset = [index_offset * idx + part_chain_end_idx[idx] for idx in range(len(part_chain_lengths))]
         part_residue_index_offset = np.concatenate([np.ones(length) * offset for length, offset in zip(part_chain_lengths, part_chain_offset)])
         residue_index_offset_list.append(part_residue_index_offset)
     
