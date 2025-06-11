@@ -10,7 +10,6 @@ from pinder.core import PinderSystem, get_index, get_supplementary_data, get_met
 from pinder.data.plot.performance import get_subsampled_train
 
 from esm.models.esmc import ESMC
-from esm.sdk.api import ESMProtein, LogitsConfig
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
@@ -50,14 +49,6 @@ def add_args(parser):
         type=Path,
         help=""
     )
-
-def get_esm_embeddings(seq, client):
-    protein = ESMProtein(sequence=seq)
-    protein_tensor = client.encode(protein)
-    logits_output = client.logits(
-    protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
-    )
-    return logits_output.embeddings[0]
 
 def main(args):
     client = ESMC.from_pretrained("esmc_600m").to("cuda")
@@ -136,7 +127,7 @@ def main(args):
                     part_seqres, part_resi_split = data_utils.get_seq_from_atom_array(getattr(ps, f'native_{abbr}').atom_array)
                 assert len(part_resi_split) == len(part_seqres), "Length mismatch between resi and seq"
                 part_seq, _ = data_utils.truncate_to_resolved(part_seqres, part_resi_split)
-                part_esm_embeddings = get_esm_embeddings(part_seq, client)
+                part_esm_embeddings = data_utils.get_esm_embeddings(part_seq, client)
                 part_esm_embeddings = part_esm_embeddings.cpu().numpy()
                 np.save(args.outdir / f"{part_id}.npy", part_esm_embeddings)
                 struct_seq[part] = part_seq

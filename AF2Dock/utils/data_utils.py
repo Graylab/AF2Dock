@@ -187,3 +187,13 @@ def apply_rigid_body_transform_atom37(all_atom_positions, all_atom_mask, ca_idx,
     all_atom_positions = all_atom_positions + com[:, None, None, :] + tr[:, None, None, ...]
     all_atom_positions = all_atom_positions * all_atom_mask[..., None]
     return all_atom_positions
+
+def get_esm_embeddings(seq, client):
+    from esm.sdk.api import ESMProtein, LogitsConfig
+    
+    protein = ESMProtein(sequence=seq)
+    protein_tensor = client.encode(protein)
+    logits_output = client.logits(
+    protein_tensor, LogitsConfig(sequence=True, return_embeddings=True)
+    )
+    return logits_output.embeddings[0]
