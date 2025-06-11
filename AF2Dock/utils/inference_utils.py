@@ -7,9 +7,16 @@ from pytorch_lightning.utilities.deepspeed import (
     convert_zero_checkpoint_to_fp32_state_dict
 )
 
+from biotite import structure as struc
+from biotite.structure.io import pdb, pdbx
+
+from openfold.data import parsers, feature_pipeline
 from openfold.np import protein, residue_constants
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils import multi_chain_permutation
+
+from AF2Dock.data import of_data
+from AF2Dock.utils import data_utils
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)
@@ -152,3 +159,127 @@ def update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
     updated_atom_pos[1] = (updated_atom_pos[1] @ lig_r_t + lig_x_t + lig_coms[1][..., None, :]) * atom_masks[1][..., None]
     
     return updated_atom_pos
+
+def get_struc(part_struct_file):
+    struct_file_type = part_struct_file.split('.')[-1]
+    if struct_file_type == 'pdb':
+        part_struc_pdb_file = pdb.PDBFile.read(part_struct_file)
+        part_struc = pdb.get_structure(part_struc_pdb_file, model=1)
+    elif struct_file_type == 'cif':
+        part_struc_cif_file = pdbx.CIFFile.read(part_struct_file)
+        part_struc = pdbx.get_structure(part_struc_cif_file, model=1)
+    else:
+        raise ValueError(f"Unsupported structure file type: {struct_file_type}")
+
+    return part_struc
+
+def get_seqs(target_row, part_struc, part, chains):
+    part_seq_full_list = []
+    part_resi_is_resolved_list = []
+    
+    if f'{part}_seq' in target_row:
+        part_seq_file = target_row[f'{part}_seq']
+        with open(part_seq_file, 'r') as f:
+            part_seq_aln_str = f.read().strip()
+        part_seqs_aln, part_seqs_aln_tags = parsers.parse_fasta(part_seq_aln_str)
+        part_seqs_dict = {tag: seq for tag, seq in zip(part_seqs_aln_tags, part_seqs_aln)}
+        
+        for chain_id in chains:
+            part_seq_full_list.append(part_seqs_dict[f'{chain_id}_full'])
+            chain_resi_is_resolved = np.array([res != '-' for res in part_seqs_dict[chain_id]])
+            part_resi_is_resolved_list.append(chain_resi_is_resolved)
+    else:
+        for chain_id in chains:
+            chain_part_struc = part_struc[part_struc.chain_id == chain_id]
+            _, res_names = struc.get_residues(chain_part_struc)
+            chain_part_seq = []
+            for res_name in res_names:
+                olc = struc.info.one_letter_code(res_name)
+                if olc is None or len(olc) != 1:
+                    olc = 'X'
+                chain_part_seq.append(olc)
+            chain_part_seq = ''.join(chain_part_seq)
+            part_seq_full_list.append(chain_part_seq)
+            chain_resi_is_resolved = np.ones(len(chain_part_seq), dtype=bool)
+    
+    return part_seq_full_list, part_resi_is_resolved_list
+
+def load_data(target_row, config, esm_client=None, device='cuda'):
+    data_pipeline = of_data.DataPipelineMultimer()
+    feat_pipeline = feature_pipeline.FeaturePipeline(config)
+    
+    seq_dict = {}
+    ini_struct_feats_dict = {}
+    template_fests_dict = {}
+    if config.model.pair_denoiser.use_esm:
+        esm_embedding_dict = {}
+    
+    for part in ['rec', 'lig']:
+        part_struct_file = target_row[part]
+        part_struc = get_struc(part_struct_file)
+        
+        chains = struc.get_chains(part_struc)
+        if len(chains) == 1 and chains[0] == '':
+            part_struc.chain_id = ['A'] * len(part_struc.chain_id)
+            chains = struc.get_chains(part_struc)
+
+        part_seq_full_list, part_resi_is_resolved_list = get_seqs(target_row,
+                                                                  part_struc,
+                                                                  part,
+                                                                  chains)
+        
+        part_ini_atom_positions_list = []
+        part_ini_atom_mask_list = []
+        for chain_idx, chain_id in enumerate(chains):
+            chain_part_seq = part_seq_full_list[chain_idx]
+            chain_part_resi_is_resolved = part_resi_is_resolved_list[chain_idx]
+            chain_part_struc = part_struc[part_struc.chain_id == chain_id]
+            assert len(chain_part_struc) == chain_part_resi_is_resolved.sum(), f"Length mismatch for {part} chain {chain_id}"
+            part_ini_atom_positions_chain, part_ini_atom_mask_chain = of_data.get_atom_coords_pinder(chain_part_seq,
+                                                                                                     chain_part_resi_is_resolved,
+                                                                                                     chain_part_struc)
+            part_ini_atom_positions_list.append(part_ini_atom_positions_chain)
+            part_ini_atom_mask_list.append(part_ini_atom_mask_chain)
+            
+            part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
+                chain_part_seq, residue_constants.HHBLITS_AA_TO_ID
+            ))
+            seq_dict[f'{part}_{chain_id}'] = chain_part_seq
+            template_fests_dict[f'{part}_{chain_id}'] = {
+                "template_all_atom_positions": part_ini_atom_positions_chain[None, ...],
+                "template_all_atom_mask": part_ini_atom_mask_chain[None, ...],
+                "template_aatype": part_ini_aatype[None, ...],
+            }
+        
+        ini_struct_feats_dict[part] = {
+            "ini_all_atom_positions": np.concatenate(part_ini_atom_positions_list, axis=0),
+            "ini_all_atom_mask": np.concatenate(part_ini_atom_mask_list, axis=0),
+        }
+        
+        if config.model.pair_denoiser.use_esm:
+            esm_client = esm_client.to(device)
+            esm_embedding_list = []
+            for part_seq in part_seq_full_list:
+                chain_part_esm_embeddings = data_utils.get_esm_embeddings(part_seq, esm_client)
+                chain_part_esm_embeddings = chain_part_esm_embeddings.cpu().numpy()
+                chain_part_esm_embeddings = chain_part_esm_embeddings[1:-1] # remove BOS and EOS
+                esm_embedding_list.append(chain_part_esm_embeddings)
+            esm_client = esm_client.to('cpu')
+            esm_embedding_dict[part] = np.concatenate(esm_embedding_list, axis=0)
+    
+    fasta_str = ''.join([f'>{tag}\n{seq}\n' for tag, seq in seq_dict.items()])
+    
+    data = data_pipeline.process_fasta(
+        fasta_str,
+        template_fests_dict,
+        max_templates=1
+    )
+    
+    if config.model.pair_denoiser.use_esm:
+        data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
+    
+    data = feat_pipeline.process_features(
+        data, mode='predict', is_multimer=True
+    )
+    
+    
