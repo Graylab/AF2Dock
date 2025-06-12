@@ -126,7 +126,7 @@ def main(args):
                 t = time_idx / total_steps
                 s = t + 1 / total_steps
                 
-                batch['t'] = batch['t'].new_tensor(np.array([[[t]]]))
+                batch['t'] = batch['t'].new_tensor(np.array([[[[t]]]]))
                 
                 template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
                 assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]

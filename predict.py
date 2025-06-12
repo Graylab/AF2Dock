@@ -69,9 +69,27 @@ def main(args):
     
     ca_idx = residue_constants.atom_order["CA"]
     
-    predict_targets = pd.read_csv(args.input_csv)
-    for data_idx in tqdm(len(predict_targets)):
-        data_idx = data_idx + args.data_starting_index
+    if args.input_csv is not None:
+        predict_targets = pd.read_csv(args.input_csv)
+    elif args.rec_struc_path is not None and args.lig_struc_path is not None:
+        if args.data_id is None:
+            data_id = f"{args.rec_struc_path.stem}_{args.lig_struc_path.stem}"
+        else:
+            data_id = args.data_id
+        predict_targets = {
+            'id': [data_id],
+            'rec': [str(args.rec_struc_path)],
+            'lig': [str(args.lig_struc_path)],
+        }
+        if args.rec_seq_path is not None:
+            predict_targets['rec_seq'] = [str(args.rec_seq_path)]
+        if args.lig_seq_path is not None:
+            predict_targets['lig_seq'] = [str(args.lig_seq_path)]
+        predict_targets = pd.DataFrame(predict_targets)
+    else:
+        raise ValueError("Either input_csv or both rec_struc_path and lig_struc_path must be provided.")
+    
+    for data_idx in tqdm(range(args.data_starting_index, len(predict_targets))):
         target_row = predict_targets.iloc[data_idx]
         batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
                                                                                                            config, 
@@ -86,6 +104,8 @@ def main(args):
         if not out_dir_data.exists():
             out_dir_data.mkdir(exist_ok=True)
 
+        metrics = {'sample_idx': [], 'iptm': []}
+        
         for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
             curr_atom_pos = []
             atom_masks = []
@@ -117,7 +137,7 @@ def main(args):
                 t = time_idx / total_steps
                 s = t + 1 / total_steps
                 
-                batch['t'] = batch['t'].new_tensor(np.array([[[t]]]))
+                batch['t'] = batch['t'].new_tensor(np.array([[[[t]]]]))
                 
                 template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
                 assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
@@ -137,9 +157,14 @@ def main(args):
 
             inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=args.save_intermediate_template,
                                          residue_index=original_residue_index, asym_id=original_asym_id)
+            
+            metrics['sample_idx'].append(sample_idx)
+            metrics['iptm'].append(out['iptm_score'].item())
 
         batch = tensor_tree_map(lambda x: x.cpu(), batch)
-
+        metrics = pd.DataFrame(metrics)
+        metrics = metrics.sort_values('iptm', ascending=False)
+        metrics.to_csv(out_dir_data / f'{data_id}_s{args.sample_starting_index}_{args.sample_starting_index + args.num_samples - 1}_iptm.csv', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -149,7 +174,32 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--input_csv", type=Path, default=None,
-        help="""Input csv file containing rec lig structures and sequences""",
+        help="""Input csv file containing rec lig structures and sequences, 
+        have priority over individually supplied input files.""",
+    )
+    parser.add_argument(
+        "--data_id", type=str, default=None,
+        help="""Data ID for output prefix"""
+    )
+    parser.add_argument(
+        "--rec_struc_path", type=Path, default=None,
+        help="""Path to the receptor structure file""",
+    )
+    parser.add_argument(
+        "--lig_struc_path", type=Path, default=None,
+        help="""Path to the ligand structure file""",
+    )
+    parser.add_argument(
+        "--rec_seq_path", type=Path, default=None,
+        help="""Path to the receptor sequence a3m file with resolved sequence 
+        aligned to full sequence for each chain. If not supplied,
+        the sequence will be extracted from the structure file""",
+    )
+    parser.add_argument(
+        "--lig_seq_path", type=Path, default=None,
+        help="""Path to the ligand sequence a3m file with resolved sequence
+        aligned to full sequence for each chain. If not supplied,
+        the sequence will be extracted from the structure file""",
     )
     parser.add_argument(
         "--num_samples", type=int, default=40,

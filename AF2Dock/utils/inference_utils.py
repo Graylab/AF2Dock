@@ -255,7 +255,7 @@ def adjust_assembly_features(data, seq_dict, index_offset=200):
 
 def load_data(target_row, config, esm_client=None, device='cuda'):
     data_pipeline = of_data.DataPipelineMultimer()
-    feat_pipeline = feature_pipeline.FeaturePipeline(config)
+    feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
     
     seq_dict = {}
     ini_struct_feats_dict = {}
@@ -283,7 +283,7 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
             chain_part_seq = part_seq_full_list[chain_idx]
             chain_part_resi_is_resolved = part_resi_is_resolved_list[chain_idx]
             chain_part_struc = part_struc[part_struc.chain_id == chain_id]
-            assert len(chain_part_struc) == chain_part_resi_is_resolved.sum(), f"Length mismatch for {part} chain {chain_id}"
+            assert len(struc.get_residue_starts(chain_part_struc)) == chain_part_resi_is_resolved.sum(), f"Length mismatch for {part} chain {chain_id}"
             part_ini_atom_positions_chain, part_ini_atom_mask_chain = of_data.get_atom_coords_pinder(chain_part_seq,
                                                                                                      chain_part_resi_is_resolved,
                                                                                                      chain_part_struc)
@@ -324,6 +324,8 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
         max_templates=1
     )
     
+    data["t"] = np.array([[0.0]], dtype=np.float32)
+    
     if config.model.pair_denoiser.use_esm:
         data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
     
@@ -331,8 +333,8 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
         data, mode='predict', is_multimer=True
     )
     
-    original_asym_id = data['asym_id'].clone().detach().cpu()
-    original_residue_index = data['residue_index'].clone().detach().cpu()
+    original_asym_id = data['asym_id'][..., -1].clone().detach().cpu().numpy()
+    original_residue_index = data['residue_index'][..., -1].clone().detach().cpu().numpy()
     
     data = adjust_assembly_features(data, seq_dict)
     
