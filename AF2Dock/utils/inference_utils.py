@@ -91,7 +91,7 @@ def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True,
     residue_index = residue_index + 1
     asym_id = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy()
     chain_index = asym_id - 1
-    # template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
+    template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
     
     if out_template:
         template_all_atom_pos_out = batch['template_all_atom_positions'].clone().detach().cpu().numpy()[0][0][..., -1]
