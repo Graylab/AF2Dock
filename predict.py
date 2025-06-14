@@ -153,10 +153,10 @@ def main(args):
                     if args.save_intermediate_template or args.save_intermediate_pred or time_idx == 0:
                         inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, 
                                                      out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or time_idx == 0,
-                                                     residue_index=original_residue_index, asym_id=original_asym_id)
+                                                     original_residue_index=original_residue_index, original_asym_id=original_asym_id)
 
             inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=args.save_intermediate_template,
-                                         residue_index=original_residue_index, asym_id=original_asym_id)
+                                         original_residue_index=original_residue_index, original_asym_id=original_asym_id)
             
             metrics['sample_idx'].append(sample_idx)
             metrics['iptm'].append(out['iptm_score'].item())

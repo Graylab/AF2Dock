@@ -82,18 +82,16 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     return global_r, global_x, swap
     
 def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True,
-                 out_template=False, residue_index=None, asym_id=None):
+                 out_template=False, original_residue_index=None, original_asym_id=None):
     out_items_to_save = ['plddt', 'ptm_score', 'iptm_score', 'weighted_ptm_score', 
                          'predicted_aligned_error', 'max_predicted_aligned_error',
                          'final_atom_positions', 'final_atom_mask']
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
-    if residue_index is None:
-        residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy()
+    residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy()
     residue_index = residue_index + 1
-    if asym_id is None:
-        asym_id = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy()
+    asym_id = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy()
     chain_index = asym_id - 1
-    template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
+    # template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
     
     if out_template:
         template_all_atom_pos_out = batch['template_all_atom_positions'].clone().detach().cpu().numpy()[0][0][..., -1]
@@ -124,16 +122,27 @@ def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True,
         )
         with open(outpath / (outprefix+'.pdb'), 'w') as fp:
             fp.write(protein.to_pdb(prot_pred))
-        prot_pred_masked = protein.Protein(
-            aatype=aatype,
-            atom_positions=all_atom_pos_out,
-            atom_mask=template_all_atom_mask_out,
-            residue_index=residue_index,
-            b_factors=b_factors_out,
-            chain_index=chain_index,
-        )
-        with open(outpath / (outprefix+'_masked.pdb'), 'w') as fp:
-            fp.write(protein.to_pdb(prot_pred_masked))
+        # prot_pred_masked = protein.Protein(
+        #     aatype=aatype,
+        #     atom_positions=all_atom_pos_out,
+        #     atom_mask=template_all_atom_mask_out,
+        #     residue_index=residue_index,
+        #     b_factors=b_factors_out,
+        #     chain_index=chain_index,
+        # )
+        # with open(outpath / (outprefix+'_masked.pdb'), 'w') as fp:
+        #     fp.write(protein.to_pdb(prot_pred_masked))
+        if original_residue_index is not None and original_asym_id is not None:
+            prot_pred_orig = protein.Protein(
+                aatype=aatype,
+                atom_positions=all_atom_pos_out,
+                atom_mask=all_atom_mask_out,
+                residue_index=original_residue_index + 1,
+                b_factors=b_factors_out,
+                chain_index=original_asym_id - 1,
+            )
+            with open(outpath / (outprefix+'_ori_chain.pdb'), 'w') as fp:
+                fp.write(protein.to_pdb(prot_pred_orig))
         if out_conf:
             out = {k: v for k, v in out.items() if k in out_items_to_save}
             with open(outpath / (outprefix+'_out.pkl'), "wb") as fp:
@@ -176,7 +185,7 @@ def get_struc(part_struct_file):
         part_struc = pdbx.get_structure(part_struc_cif_file, model=1)
     else:
         raise ValueError(f"Unsupported structure file type: {struct_file_type}")
-
+    
     return part_struc
 
 def get_seqs(target_row, part_struc, part, chains):
@@ -266,6 +275,8 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
     for part in ['rec', 'lig']:
         part_struct_file = target_row[part]
         part_struc = get_struc(part_struct_file)
+        
+        part_struc = part_struc[part_struc.hetero == False]
         
         chains = struc.get_chains(part_struc)
         if len(chains) == 1 and chains[0] == '':
