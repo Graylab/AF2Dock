@@ -133,9 +133,16 @@ def main(args):
             
             total_steps =  args.num_steps
             
-            for time_idx in range(total_steps):
-                t = time_idx / total_steps
-                s = t + 1 / total_steps
+            time_indexes = np.arange(0, total_steps)
+            if args.merge_first_n_steps > 0:
+                time_indexes = np.insert(time_indexes[args.merge_first_n_steps:], 0, 0)
+            
+            for tidx, time_index in enumerate(time_indexes):
+                t = time_index / total_steps
+                if tidx == 0 and args.merge_first_n_steps > 0:
+                    s = t + args.merge_first_n_steps / total_steps
+                else:
+                    s = t + 1 / total_steps
                 
                 batch['t'] = batch['t'].new_tensor(np.array([[[[t]]]]))
                 
@@ -147,12 +154,12 @@ def main(args):
                 out = model(batch)
                 out = tensor_tree_map(lambda x: x.cpu(), out)
                 
-                if time_idx < total_steps - 1:
+                if tidx < len(time_indexes) - 1:
                     curr_atom_pos = inference_utils.update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
                     
-                    if args.save_intermediate_template or args.save_intermediate_pred or time_idx == 0:
-                        inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_idx}', out_pred=args.save_intermediate_pred, 
-                                                     out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or time_idx == 0,
+                    if args.save_intermediate_template or args.save_intermediate_pred or tidx == 0:
+                        inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}_t{time_index}', out_pred=args.save_intermediate_pred, 
+                                                     out_conf=args.save_intermediate_conf, out_template=args.save_intermediate_template or tidx == 0,
                                                      original_residue_index=original_residue_index, original_asym_id=original_asym_id)
 
             inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_s{sample_idx}', out_pred=True, out_conf=True, out_template=args.save_intermediate_template,
@@ -208,6 +215,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_steps", type=int, default=10,
         help="""Number of steps for the denoising process"""
+    )
+    parser.add_argument(
+        "--merge_first_n_steps", type=int, default=0,
+        help="""Merge the first N time steps"""
     )
     parser.add_argument(
         "--model_device", type=str, default="cuda",
