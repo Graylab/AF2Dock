@@ -110,6 +110,36 @@ def make_dummy_msa_feats(input_sequence, input_description) -> FeatureDict:
     msa_data_obj = make_dummy_msa_obj(input_sequence, input_description)
     return data_pipeline.make_msa_features([msa_data_obj])
 
+def merge_chain_features(np_chains_list,
+                         pair_msa_sequences: bool,
+                         max_templates: int):
+    """Merges features for multiple chains to single FeatureDict.
+
+    Args:
+        np_chains_list: List of FeatureDicts for each chain.
+        pair_msa_sequences: Whether to merge paired MSAs.
+        max_templates: The maximum number of templates to include.
+
+    Returns:
+        Single FeatureDict for entire complex.
+    """
+    np_chains_list = msa_pairing._pad_templates(
+        np_chains_list, max_templates=max_templates)
+    # We don't merge homomers to keep the original chain order.
+    # np_chains_list = _merge_homomers_dense_msa(np_chains_list)
+    # Unpaired MSA features will be always block-diagonalised; paired MSA
+    # features will be concatenated.
+    np_example = msa_pairing._merge_features_from_multiple_chains(
+        np_chains_list, pair_msa_sequences=False)
+    if pair_msa_sequences:
+        np_example = msa_pairing._concatenate_paired_and_unpaired_features(np_example)
+    np_example = msa_pairing._correct_post_merged_feats(
+        np_example=np_example,
+        np_chains_list=np_chains_list,
+        pair_msa_sequences=pair_msa_sequences)
+
+    return np_example
+
 def merge_features(all_chain_features, max_templates):
     # from https://github.com/sokrypton/ColabFold/blob/b119520d8f43e1547e1c4352fd090c59a8dbb369/colabfold/batch.py#L913C1-L952C1
     feature_processing_multimer.process_unmerged_features(all_chain_features)
@@ -145,7 +175,7 @@ def merge_features(all_chain_features, max_templates):
         {key: value for (key, value) in chain.items() if key in common_features}
         for chain in np_chains_list
     ]
-    np_example = feature_processing_multimer.msa_pairing.merge_chain_features(
+    np_example = merge_chain_features(
         np_chains_list=np_chains_list,
         pair_msa_sequences=pair_msa_sequences,
         max_templates=max_templates,
@@ -172,9 +202,9 @@ def add_assembly_features(
     # First pass: determine entity_id for each unique sequence
     seq_to_entity_id = {}
     for chain_id, chain_features in all_chain_features.items():
-      seq = str(chain_features['sequence'])
-      if seq not in seq_to_entity_id:
-        seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
+        seq = str(chain_features['sequence'])
+        if seq not in seq_to_entity_id:
+            seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
     
     # Track how many times we've seen each entity (for sym_id assignment)
     entity_counter = collections.defaultdict(int)
@@ -183,25 +213,25 @@ def add_assembly_features(
     new_all_chain_features = {}
     chain_id = 1
     for original_chain_id, chain_features in all_chain_features.items():
-      seq = str(chain_features['sequence'])
-      entity_id = seq_to_entity_id[seq]
-      entity_counter[entity_id] += 1
-      sym_id = entity_counter[entity_id]
+        seq = str(chain_features['sequence'])
+        entity_id = seq_to_entity_id[seq]
+        entity_counter[entity_id] += 1
+        sym_id = entity_counter[entity_id]
       
-      new_all_chain_features[
-          f'{data_pipeline.int_id_to_str_id(entity_id)}_{sym_id}'] = chain_features
+        new_all_chain_features[
+            f'{data_pipeline.int_id_to_str_id(entity_id)}_{sym_id}'] = chain_features
       
-      seq_length = chain_features['seq_length']
-      chain_features['asym_id'] = (
-          chain_id * np.ones(seq_length)
-      ).astype(np.int64)
-      chain_features['sym_id'] = (
-          sym_id * np.ones(seq_length)
-      ).astype(np.int64)
-      chain_features['entity_id'] = (
-          entity_id * np.ones(seq_length)
-      ).astype(np.int64)
-      chain_id += 1
+        seq_length = chain_features['seq_length']
+        chain_features['asym_id'] = (
+            chain_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_features['sym_id'] = (
+            sym_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_features['entity_id'] = (
+            entity_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_id += 1
 
     return new_all_chain_features
 

@@ -224,9 +224,9 @@ def adjust_assembly_features(data, seq_dict, index_offset=200):
     seq_all_dict = {part:[seq for key, seq in seq_dict.items() if key.startswith(part)] for part in ['rec', 'lig']}
     seq_to_entity_id = {}
     for part, seqs in seq_all_dict.items():
-      seq = ''.join(seqs)
-      if seq not in seq_to_entity_id:
-        seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
+        seq = ''.join(seqs)
+        if seq not in seq_to_entity_id:
+            seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
 
     new_asym_id = []
     new_sym_id = []
