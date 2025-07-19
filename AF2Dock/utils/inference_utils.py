@@ -216,6 +216,7 @@ def get_seqs(target_row, part_struc, part, chains):
             chain_part_seq = ''.join(chain_part_seq)
             part_seq_full_list.append(chain_part_seq)
             chain_resi_is_resolved = np.ones(len(chain_part_seq), dtype=bool)
+            part_resi_is_resolved_list.append(chain_resi_is_resolved)
     
     return part_seq_full_list, part_resi_is_resolved_list
 
