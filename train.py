@@ -32,7 +32,7 @@ import wandb
 from deepspeed.utils import zero_to_fp32 
 
 from openfold.model.torchscript import script_preset_
-from openfold.model.primatives import Linear
+from openfold.model.primitives import Linear
 from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import lddt_ca
@@ -406,6 +406,12 @@ def main(args):
             target_module_names=['extra_msa_stack', 'evoformer.blocks'],
             lora_config=lora_config
         )
+        
+        # Initialize the EMA weights
+        with torch.no_grad():
+            ema_params = model_module.model.state_dict()
+            for k in ema_params.keys():
+                model_module.ema.params[k] = ema_params[k].clone().detach()
 
         logging.info("Train with LoRA AlphaFold parameters")
     elif args.af_params == 'full':
@@ -585,7 +591,7 @@ if __name__ == "__main__":
         help="""Whether to freeze, LoRA, or fully train AlphaFold parameters"""
     )
     parser.add_argument(
-        "--lora_rank", type=float, default=16,
+        "--lora_rank", type=int, default=16,
         help="""Rank for LoRA parameterization"""
     )
     parser.add_argument(
