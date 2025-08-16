@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import json
+from functools import partial
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
@@ -31,6 +32,7 @@ import wandb
 from deepspeed.utils import zero_to_fp32 
 
 from openfold.model.torchscript import script_preset_
+from openfold.model.primatives import Linear
 from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import lddt_ca
@@ -50,7 +52,7 @@ from AF2Dock.config import model_config
 from AF2Dock.model.model import AF2Dock
 from AF2Dock.data.datamodule import AF2DockDataModule
 from AF2Dock.utils.loss import AF2DockLoss
-from AF2Dock.utils import train_utils
+from AF2Dock.utils import train_utils, minilora
 
 logger = logging.getLogger(__name__)
 
@@ -381,12 +383,35 @@ def main(args):
     if args.resume_from_jax_params:
         model_module.load_from_jax(args.resume_from_jax_params)
         logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
-    
-    if args.freeze_af_params:
+
+    if args.af_params == 'freeze':
         ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
         train_utils.freeze_params(ori_param_dict)
         logging.info("Train with frozen AlphaFold parameters")
- 
+    elif args.af_params == 'lora':
+        ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
+        filtered_param_dict = train_utils.filter_param_dict_lora(ori_param_dict)
+        train_utils.freeze_params(filtered_param_dict)
+        
+        lora_config = {  # specify which layers to add lora to, by default only add to linear layers
+            Linear: {
+                "weight": partial(minilora.LoRAParametrization.from_linear,
+                                  rank=args.lora_rank,
+                                  lora_alpha=args.lora_rank),
+            },
+        }
+        
+        minilora.add_lora_by_name_and_exclude(
+            model_module.model,
+            target_module_names=['extra_msa_stack', 'evoformer'],
+            name_to_exclude=['evoformer.linear'],
+            lora_config=lora_config
+        )
+
+        logging.info("Train with LoRA AlphaFold parameters")
+    elif args.af_params == 'full':
+        logging.info("Train with full AlphaFold parameters")
+
     # TorchScript components of the model
     if(args.script_modules):
         script_preset_(model_module)
@@ -556,8 +581,13 @@ if __name__ == "__main__":
         help="""Path to an .npz JAX parameter file with which to initialize the model"""
     )
     parser.add_argument(
-        "--freeze_af_params", type=bool_type, default=True,
-        help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
+        "--af_params", type=str, default='freeze',
+        choices=['freeze', 'lora', 'full'],
+        help="""Whether to freeze, LoRA, or fully train AlphaFold parameters"""
+    )
+    parser.add_argument(
+        "--lora_rank", type=float, default=16,
+        help="""Rank for LoRA parameterization"""
     )
     parser.add_argument(
         "--finetune_lr", type=float, default=None,
