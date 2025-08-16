@@ -113,12 +113,6 @@ def add_lora_by_name(model, target_module_names, lora_config=default_lora_config
         if any([m in name for m in target_module_names]):
             add_lora(layer, lora_config=lora_config)
 
-def add_lora_by_name_and_exclude(model, target_module_names, name_to_exclude, lora_config=default_lora_config):
-    """Add LoRA parameterization to specific layers in a model by names"""
-    for name, layer in model.named_modules():
-        if any([m in name for m in target_module_names]) and all([e not in name for e in name_to_exclude]):
-            add_lora(layer, lora_config=lora_config)
-
 def merge_lora(model):
     """merge lora parametrization to all layers in a model. This will remove all parametrization"""
     model.apply(partial(apply_lora, register=False, merge=True))

@@ -401,10 +401,9 @@ def main(args):
             },
         }
         
-        minilora.add_lora_by_name_and_exclude(
+        minilora.add_lora_by_name(
             model_module.model,
-            target_module_names=['extra_msa_stack', 'evoformer'],
-            name_to_exclude=['evoformer.linear'],
+            target_module_names=['extra_msa_stack', 'evoformer.blocks'],
             lora_config=lora_config
         )
 
