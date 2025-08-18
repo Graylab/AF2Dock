@@ -349,26 +349,27 @@ def main(args):
                     args.resume_from_ckpt)
             else:
                 sd = torch.load(args.resume_from_ckpt)
-            # Process the state dict
-            if 'module' in sd:
-                sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
-                import_openfold_weights_(model=model_module, state_dict=sd)
-                ema_params = model_module.model.state_dict()
-            elif 'state_dict' in sd:
-                import_openfold_weights_(
-                    model=model_module, state_dict=sd['state_dict'])
-                ema_params = sd['ema']['params']
-            else:
-                # Loading from pre-trained model
-                sd = {'model.'+k: v for k, v in sd.items()}
-                import_openfold_weights_(model=model_module, state_dict=sd)
-                ema_params = model_module.model.state_dict()
-            # Initialize the EMA weights
-            with torch.no_grad():
-                for k in ema_params.keys():
-                    model_module.ema.params[k] = ema_params[k].clone().detach()
-            logging.info("Successfully loaded model weights...")
-            del sd, ema_params
+            if not args.resume_from_lora_weights:
+                # Process the state dict
+                if 'module' in sd:
+                    sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
+                    import_openfold_weights_(model=model_module, state_dict=sd)
+                    ema_params = model_module.model.state_dict()
+                elif 'state_dict' in sd:
+                    import_openfold_weights_(
+                        model=model_module, state_dict=sd['state_dict'])
+                    ema_params = sd['ema']['params']
+                else:
+                    # Loading from pre-trained model
+                    sd = {'model.'+k: v for k, v in sd.items()}
+                    import_openfold_weights_(model=model_module, state_dict=sd)
+                    ema_params = model_module.model.state_dict()
+                # Initialize the EMA weights
+                with torch.no_grad():
+                    for k in ema_params.keys():
+                        model_module.ema.params[k] = ema_params[k].clone().detach()
+                logging.info("Successfully loaded model weights...")
+                del sd, ema_params
 
         else:  # Loads a checkpoint to start from a specific time step
             if os.path.isdir(args.resume_from_ckpt):
@@ -388,6 +389,7 @@ def main(args):
         ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
         train_utils.freeze_params(ori_param_dict)
         logging.info("Train with frozen AlphaFold parameters")
+    
     elif args.af_params == 'lora':
         ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
         filtered_param_dict = train_utils.filter_param_dict_lora(ori_param_dict)
@@ -406,14 +408,37 @@ def main(args):
             target_module_names=['extra_msa_stack', 'evoformer.blocks'],
             lora_config=lora_config
         )
-        
-        # Initialize the EMA weights
-        with torch.no_grad():
+
+        if args.resume_from_ckpt and args.resume_model_weights_only and args.resume_from_lora_weights:
+            # Process the state dict
+            if 'module' in sd:
+                sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
+                import_openfold_weights_(model=model_module, state_dict=sd)
+                ema_params = model_module.model.state_dict()
+            elif 'state_dict' in sd:
+                import_openfold_weights_(
+                    model=model_module, state_dict=sd['state_dict'])
+                ema_params = sd['ema']['params']
+            else:
+                # Loading from pre-trained model
+                sd = {'model.'+k: v for k, v in sd.items()}
+                import_openfold_weights_(model=model_module, state_dict=sd)
+                ema_params = model_module.model.state_dict()
+            del sd
+        else:
             ema_params = model_module.model.state_dict()
+
+        # Initialize the EMA weights
+        model_module.ema = ExponentialMovingAverage(
+            model=model_module.model, decay=model_module.ema.decay
+        )
+        with torch.no_grad():
             for k in ema_params.keys():
                 model_module.ema.params[k] = ema_params[k].clone().detach()
+        del ema_params
 
         logging.info("Train with LoRA AlphaFold parameters")
+    
     elif args.af_params == 'full':
         logging.info("Train with full AlphaFold parameters")
 
@@ -584,6 +609,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--resume_from_jax_params", type=str, default=None,
         help="""Path to an .npz JAX parameter file with which to initialize the model"""
+    )
+    parser.add_argument(
+        "--resume_from_lora_weights", type=bool_type, default=False,
+        help="Whether the statedict loaded contain LoRA weights"
     )
     parser.add_argument(
         "--af_params", type=str, default='freeze',
