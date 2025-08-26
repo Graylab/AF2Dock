@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pinder.core import PinderSystem, get_index, get_supplementary_data, get_metadata
-from pinder.data.plot.performance import get_subsampled_train
 
 from esm.models.esmc import ESMC
 
@@ -38,7 +37,7 @@ def add_args(parser):
     )
     parser.add_argument(
         '--test-set',
-        default='pinder_s',
+        default='pinder_af2',
         choices=['pinder_af2', 'pinder_xl', 'pinder_s'],
         help="",
     )
@@ -49,38 +48,60 @@ def add_args(parser):
         type=Path,
         help=""
     )
+    parser.add_argument(
+        '-t',
+        '--three_body_interactions_pkl',
+        default=None,
+        type=Path,
+        help=""
+    )
+    parser.add_argument(
+        '--not-filter-train-by-date',
+        default=False,
+        action='store_true',
+    )
 
 def main(args):
     client = ESMC.from_pretrained("esmc_600m").to("cuda")
     entity_meta = get_supplementary_data("entity_metadata")
     chain_meta = get_supplementary_data("chain_metadata")
     full_index = get_index()
+    metadata = get_metadata()
 
     indexes_to_compute = []
     if not args.skip_train_val:
         train_index = full_index.query("split == 'train'").copy().reset_index(drop=True)
         if not args.full_train:
             train_index = data_utils.prefilter(train_index,
-                                               get_metadata(),
+                                               metadata,
                                                entity_meta,
-                                               chain_meta)
-            if args.pinder_entity_seq_cluster_pkl is not None:
-                entity_seq_cluster = pd.read_pickle(args.pinder_entity_seq_cluster_pkl)
-                train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-                train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
-                                                left_on='holo_R_id',
-                                                right_on='part_id',
-                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_R'})
-                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
-                                                left_on='holo_L_id',
-                                                right_on='part_id',
-                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
-                train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
-                train_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, get_metadata())
-            else:
-                train_index = get_subsampled_train(train_index)
+                                               chain_meta,
+                                               not args.not_filter_train_by_date)
+            
+            entity_seq_cluster = pd.read_pickle(args.pinder_entity_seq_cluster_pkl)
+            train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+            train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+            train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
+                                            left_on='holo_R_id',
+                                            right_on='part_id',
+                                            how='left').rename(columns={'seq_cluster_40': 'seq_cluster_R'})
+            train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
+                                            left_on='holo_L_id',
+                                            right_on='part_id',
+                                            how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
+            train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
+            train_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
+
             indexes_to_compute.append(train_index)
+            
+            three_body_interactions = pd.read_pickle(args.three_body_interactions_pkl)
+            _, three_chain_train_pair_index = data_utils.get_subsampled_train_with_seq_cluster_three_chain(
+                three_body_interactions,
+                train_index,
+                metadata
+                )
+            
+            indexes_to_compute.append(three_chain_train_pair_index)
         else:
             indexes_to_compute.append(train_index)
         indexes_to_compute.append(full_index.query("split == 'val'").copy().reset_index(drop=True))
