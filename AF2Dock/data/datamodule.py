@@ -16,7 +16,6 @@ from openfold.data import (
 )
 from openfold.np import residue_constants
 from pinder.core import PinderSystem, get_index, get_supplementary_data, get_metadata
-from pinder.data.plot.performance import get_subsampled_train
 
 import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -31,12 +30,14 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  mode: str = "train",
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
+                 three_body_interactions_pkl: str = None,
                  max_val_len: int = 1000,
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
                  test_starting_index: int = 0,
                  test_len_threshold: int = None,
                  test_longer_ones: bool = False,
+                 filter_train_by_date: bool = True
                  ):
         """
             Args:
@@ -72,23 +73,34 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 train_index = data_utils.prefilter(train_index,
                                                    metadata,
                                                    entity_meta,
-                                                   chain_meta)
-                if pinder_entity_seq_cluster_pkl is not None:
-                    entity_seq_cluster = pd.read_pickle(pinder_entity_seq_cluster_pkl)
-                    train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-                    train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-                    train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
-                                                    left_on='holo_R_id',
-                                                    right_on='part_id',
-                                                    how='left').rename(columns={'seq_cluster_40': 'seq_cluster_R'})
-                    train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
-                                                    left_on='holo_L_id',
-                                                    right_on='part_id',
-                                                    how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
-                    train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
-                    self.data_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
-                else:
-                    self.data_index = get_subsampled_train(train_index)
+                                                   chain_meta,
+                                                   filter_train_by_date)
+
+                entity_seq_cluster = pd.read_pickle(pinder_entity_seq_cluster_pkl)
+                train_index['holo_R_id'] = train_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+                train_index['holo_L_id'] = train_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
+                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
+                                                left_on='holo_R_id',
+                                                right_on='part_id',
+                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_R'})
+                train_index = train_index.merge(entity_seq_cluster[['part_id', 'seq_cluster_40']], 
+                                                left_on='holo_L_id',
+                                                right_on='part_id',
+                                                how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
+                train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
+                
+                two_chain_train_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
+                two_chain_train_index['three_body'] = False
+                
+                three_body_interactions = pd.read_pickle(three_body_interactions_pkl)
+                three_body_interactions, three_chain_train_pair_index = data_utils.get_subsampled_train_with_seq_cluster_three_chain(
+                    three_body_interactions,
+                    train_index,
+                    metadata
+                    )
+                three_body_interactions['three_body'] = True
+                
+                self.data_index = two_chain_train_index.reset_index(drop=True)
             elif mode == "eval":
                 val_index = full_index.query("split == 'val'").copy().reset_index(drop=True)
                 val_index = val_index.merge(metadata[['id', 'length1', 'length2']], on='id', how='left')
@@ -109,28 +121,17 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     test_index = test_index.drop(columns=['length1', 'length2', 'total_length'])
                     test_index = test_index.reset_index(drop=True)
                 self.data_index = test_index.iloc[test_starting_index:].reset_index(drop=True)
-            entity_meta['part_id'] = entity_meta['entry_id'].astype(str) + '_' + entity_meta['chain'].astype(str)
-            self.data_index['holo_R_id'] = self.data_index['holo_R_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-            self.data_index['holo_L_id'] = self.data_index['holo_L_pdb'].apply(lambda x: x.split('_')[0] + '_' + x.split('_')[2])
-            self.data_index = self.data_index.merge(entity_meta[['part_id', 'sequence']], 
-                                                    left_on='holo_R_id',
-                                                    right_on='part_id',
-                                                    how='left').rename(columns={'sequence': 'seq_R'})
-            self.data_index = self.data_index.merge(entity_meta[['part_id', 'sequence']],
-                                                    left_on='holo_L_id',
-                                                    right_on='part_id',
-                                                    how='left').rename(columns={'sequence': 'seq_L'})
-            self.data_index = self.data_index.merge(chain_meta[['id', 'resi_auth_R', 'resi_auth_L']],
-                                                    on='id',
-                                                    how='left')
-            self.data_index = self.data_index.merge(supp_meta[['id', 'chain_1_residues', 'chain_2_residues']],
-                                                    on='id',
-                                                    how='left').rename(columns={'chain_1_residues': 'chain_R_residues',
-                                                                                'chain_2_residues': 'chain_L_residues'})
-            self.data_index = self.data_index.merge(metadata[['id', 'resolution']],
-                                                    on='id',
-                                                    how='left')
-            self.data_index = self.data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
+                
+            self.data_index = data_utils.add_meta_attributes(self.data_index,
+                                                             entity_meta, chain_meta,
+                                                             supp_meta, metadata).reset_index(drop=True)
+            
+            if mode == 'train':
+                self.data_index = pd.concat([self.data_index, three_body_interactions], ignore_index=True).reset_index(drop=True)
+                self.three_body_pair_index = data_utils.add_meta_attributes(three_chain_train_pair_index, 
+                                                                            entity_meta, chain_meta, 
+                                                                            supp_meta, metadata).reset_index(drop=True)
+
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
 
@@ -154,10 +155,33 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                       for key in ini_sequential_id_to_uniprot if ini_sequential_id_to_uniprot[key] in uniprot_to_holo_seq_sequential_id}
         return ini_seqential_id_to_holo_seq_sequential_id
     
+    def get_part_interface_resi(self, ps_id, abbr, part, index_entry):
+        all_comb_ids = [index_entry[f'chain_comb_{idx}'].split(',')[0] for idx in range(3)]
+        part_single_id = ps_id.split('--')[{'R': 0, 'L': 1}[abbr]]
+        if part == 'lig':
+            lig_comb_ids = [item for item in all_comb_ids if part_single_id in item]
+            part_interface_resi_both = []
+            for comb_id in lig_comb_ids:
+                comb_index_entry = self.three_body_pair_index.query(f'id == "{comb_id}"').iloc[0]
+                comb_id_part_id = ['R', 'L'][comb_id.split('--').index(part_single_id)]
+                part_interface_resi_both.append(comb_index_entry[f'chain_{comb_id_part_id}_residues'])
+            part_interface_resi_both_num = [item.split(',') for item in part_interface_resi_both]
+            part_interface_resi_both_num = sum(part_interface_resi_both_num, [])
+            part_interface_resi_both_num = sorted(list(set([int(item) for item in part_interface_resi_both_num])))
+            part_interface_resi = ','.join([str(item) for item in part_interface_resi_both_num])
+        else:
+            for comb_id in all_comb_ids:
+                if comb_id != ps_id and part_single_id in comb_id:
+                    break
+            comb_index_entry = self.three_body_pair_index.query(f'id == "{comb_id}"').iloc[0]
+            comb_id_part_id = ['R', 'L'][comb_id.split('--').index(part_single_id)]
+            part_interface_resi = comb_index_entry[f'chain_{comb_id_part_id}_residues']
+
+        return part_interface_resi
+
     def __getitem__(self, idx):
         item_idx = idx
         index_entry = self.data_index.iloc[idx]
-        struct_id = index_entry['id']
         num_struct_batch = self.config[self.mode].max_templates
 
         try:
@@ -169,7 +193,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     t[:num_to_replace] = small_t
                 # t = np.array([[1.0]])
 
-                ps = PinderSystem(struct_id)
                 cate_probs_ori = dict(self.config[self.mode].pinder_cate_prob)
 
                 all_atom_positions_dict = {}
@@ -181,12 +204,35 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 if self.mode == 'test':
                     ini_struct_feats_dict = {}
                 
-                for part in ['rec', 'lig']:
-                    abbr = 'R' if part == 'rec' else 'L'
-                    full_n = 'receptor' if part == 'rec' else 'ligand'
-                    part_id = index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
-                    part_seqres = index_entry[f'seq_{abbr}']
-                    part_resi_auth = index_entry[f"resi_auth_{abbr}"]
+                if self.mode == 'train' and index_entry['three_body']:
+                    parts_to_process = ['rec1', 'rec2', 'lig']
+                    comb_to_use = torch.multinomial(torch.tensor([1/3, 1/3, 1/3]), 1).item()
+                    struct_id = index_entry[f'chain_comb_{comb_to_use}']
+                else:
+                    parts_to_process = ['rec', 'lig']
+                    struct_id = index_entry['id']
+                    ps = PinderSystem(struct_id)
+
+                for part in parts_to_process:
+                    if self.mode == 'train' and index_entry['three_body']:
+                        abbr = {'rec1': 'R', 'rec2': 'L', 'lig': struct_id.split(':')[-1]}[part]
+                        full_n = {'R': 'receptor', 'L': 'ligand'}[abbr]
+                        if part.startswith('rec'):
+                            ps_id = struct_id.split(',')[0]
+                        else:
+                            ps_id = struct_id.split(',')[1].split(':')[0]
+                        ps = PinderSystem(ps_id)
+                        part_index_entry = self.three_body_pair_index.query(f'id == "{ps_id}"').iloc[0]
+                        part_interface_resi = self.get_part_interface_resi(ps_id, abbr, part, index_entry)
+                    else:
+                        abbr = 'R' if part == 'rec' else 'L'
+                        full_n = 'receptor' if part == 'rec' else 'ligand'
+                        part_index_entry = index_entry
+                        part_interface_resi = index_entry[f'chain_{abbr}_residues']
+
+                    part_id = part_index_entry[f'holo_{abbr}_pdb'].split('.pdb')[0]
+                    part_seqres = part_index_entry[f'seq_{abbr}']
+                    part_resi_auth = part_index_entry[f"resi_auth_{abbr}"]
                     part_resi_auth_split = part_resi_auth.split(',')
                     part_resi_auth_resolved_num = len(part_resi_auth_split) - part_resi_auth_split.count('')
                     struct_resi = getattr(ps, f'native_{abbr}').residues
@@ -205,8 +251,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     assert len(part_resi_split) == len(part_seqres), "Mismatch between resi split and seqres"
                     part_seq, part_resi_is_resolved = data_utils.truncate_to_resolved(part_seqres, part_resi_split)
                     part_all_atom_positions, part_all_atom_mask = of_data.get_atom_coords_pinder(part_seq,
-                                                                                                 part_resi_is_resolved,
-                                                                                                 getattr(ps, f'native_{abbr}').atom_array)
+                                                                                                    part_resi_is_resolved,
+                                                                                                    getattr(ps, f'native_{abbr}').atom_array)
                     if self.cached_esm_embedding_folder is not None:
                         part_esm_embedding = np.load(self.cached_esm_embedding_folder / f"{part_id}.npy")
                         part_esm_embedding = part_esm_embedding[1:-1] #Remove BOS and EOS
@@ -220,7 +266,6 @@ class AF2DockDataset(torch.utils.data.Dataset):
                         part_holo_struct = getattr(ps, f'aligned_holo_{abbr}')
                         part_ini_to_holo_map = self.get_map_by_uniprot(part_ini_struct, part_holo_struct, part_resi_split)
                         
-                        part_interface_resi = index_entry[f'chain_{abbr}_residues']
                         part_interface_resi_split = part_interface_resi.split(',')
                         part_pinder_resi = list(range(1, len(part_resi_split) + 1))
                         resolved_part_pinder_resi, _ = data_utils.truncate_to_resolved(part_pinder_resi, part_resi_split)
@@ -293,7 +338,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                         }
                         ini_struct_feats_dict[part] = part_ini_struct_feats
 
-                fasta_str = f">rec\n{seq_dict['rec']}\n>lig\n{seq_dict['lig']}\n"
+                fasta_str = ''.join(f'>{part}\n{seq}\n' for part, seq in seq_dict.items())
 
                 data = self.data_pipeline.process_fasta_with_atom_pos(
                     input_fasta_str=fasta_str,
@@ -302,9 +347,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
                     struct_feats_at_t_dict=struct_feats_at_t_dict,
                     max_templates=num_struct_batch,
                 )
+                
+                if self.mode == 'train' and index_entry['three_body']:
+                    data = data_utils.adjust_assembly_features(data, seq_dict)
 
                 if self.cached_esm_embedding_folder is not None:
-                    data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
+                    data["esm_embedding"] = np.concatenate(list(esm_embedding_dict.values()), axis=0)
                 data["t"] = t
                 data["tr_0"] = tr_0
                 data["rot_0"] = rot_0
@@ -315,12 +363,10 @@ class AF2DockDataset(torch.utils.data.Dataset):
             
             data = data_transforms.make_template_mask(data) # needed for template to not get deleted by feature_pipeline
             
-            # process all_chain_features
             data = self.feature_pipeline.process_features(data,
                                                         mode=self.mode,
                                                         is_multimer=True)
 
-            # if it's inference mode, only need all_chain_features
             data["batch_idx"] = torch.tensor(
                 [item_idx for _ in range(data["aatype"].shape[-1])],
                 dtype=torch.int64,
@@ -349,11 +395,13 @@ class AF2DockDataModule(pl.LightningDataModule):
                  batch_seed,
                  cached_esm_embedding_folder: str = None,
                  pinder_entity_seq_cluster_pkl: str = None,
+                 three_body_interactions_pkl: str = None,
                  test_split: str = "pinder_af2",
                  test_type: str = "holo",
                  test_starting_index: int = 0,
                  test_len_threshold: int = None,
                  test_longer_ones: bool = False,
+                 filter_train_by_date: bool = True,
                  **kwargs):
         super().__init__()
 
@@ -362,21 +410,25 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.training_mode = training_mode
         self.cached_esm_embedding_folder = cached_esm_embedding_folder
         self.pinder_entity_seq_cluster_pkl = pinder_entity_seq_cluster_pkl
+        self.three_body_interactions_pkl = three_body_interactions_pkl
         self.test_split = test_split
         self.test_type = test_type
         self.test_starting_index = test_starting_index
         self.test_len_threshold = test_len_threshold
         self.test_longer_ones = test_longer_ones
+        self.filter_train_by_date = filter_train_by_date
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
         dataset_gen = partial(AF2DockDataset,
                               config=self.config,
                               cached_esm_embedding_folder=self.cached_esm_embedding_folder,
-                              pinder_entity_seq_cluster_pkl=self.pinder_entity_seq_cluster_pkl)
+                              pinder_entity_seq_cluster_pkl=self.pinder_entity_seq_cluster_pkl,
+                              three_body_interactions_pkl=self.three_body_interactions_pkl)
 
         if self.training_mode:
-            self.train_dataset = dataset_gen(mode="train")
+            self.train_dataset = dataset_gen(mode="train",
+                                             filter_train_by_date=self.filter_train_by_date)
             self.eval_dataset = dataset_gen(mode="eval")
         elif stage == "test":
             self.test_dataset = dataset_gen(mode="test",

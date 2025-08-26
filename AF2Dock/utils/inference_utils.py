@@ -1,6 +1,5 @@
 import pickle
 import logging
-import collections
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
@@ -220,49 +219,6 @@ def get_seqs(target_row, part_struc, part, chains):
     
     return part_seq_full_list, part_resi_is_resolved_list
 
-def adjust_assembly_features(data, seq_dict, index_offset=200):
-
-    seq_all_dict = {part:[seq for key, seq in seq_dict.items() if key.startswith(part)] for part in ['rec', 'lig']}
-    seq_to_entity_id = {}
-    for part, seqs in seq_all_dict.items():
-        seq = ''.join(seqs)
-        if seq not in seq_to_entity_id:
-            seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
-
-    new_asym_id = []
-    new_sym_id = []
-    new_entity_id = []
-    residue_index_offset_list = []
-    
-    entity_counter = collections.defaultdict(int)
-    chain_id = 1
-    for part in ['rec', 'lig']:
-        seq = ''.join(seq_all_dict[part])
-        entity_id = seq_to_entity_id[seq]
-        entity_counter[entity_id] += 1
-        sym_id = entity_counter[entity_id]
-        
-        seq_length = len(seq)
-        new_asym_id.append((chain_id * np.ones(seq_length)).astype(np.int64))
-        new_sym_id.append((sym_id * np.ones(seq_length)).astype(np.int64))
-        new_entity_id.append((entity_id * np.ones(seq_length)).astype(np.int64))
-        chain_id += 1
-
-        part_chain_lengths = [len(chain_seq) for chain_seq in seq_all_dict[part]]
-        part_chain_end_idx = np.insert(np.cumsum(part_chain_lengths)[:-1], 0, 0)
-        part_chain_offset = [index_offset * idx + part_chain_end_idx[idx] for idx in range(len(part_chain_lengths))]
-        part_residue_index_offset = np.concatenate([np.ones(length) * offset for length, offset in zip(part_chain_lengths, part_chain_offset)])
-        residue_index_offset_list.append(part_residue_index_offset)
-    
-    data['asym_id'] =  data['asym_id'].new_tensor(np.concatenate(new_asym_id, axis=0)[..., None])
-    data['sym_id'] =  data['sym_id'].new_tensor(np.concatenate(new_sym_id, axis=0)[..., None])
-    data['entity_id'] =  data['entity_id'].new_tensor(np.concatenate(new_entity_id, axis=0)[..., None])
-    
-    residue_index_offset = data['residue_index'].new_tensor(np.concatenate(residue_index_offset_list, axis=0)[..., None])
-    data['residue_index'] = data['residue_index'] + residue_index_offset
-
-    return data
-
 def load_data(target_row, config, esm_client=None, device='cuda'):
     data_pipeline = of_data.DataPipelineMultimer()
     feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
@@ -341,13 +297,13 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
     if config.model.pair_denoiser.use_esm:
         data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
     
+    original_asym_id = data['asym_id']
+    original_residue_index = data['residue_index']
+    
+    data = data_utils.adjust_assembly_features(data, seq_dict)
+    
     data = feat_pipeline.process_features(
         data, mode='predict', is_multimer=True
     )
-    
-    original_asym_id = data['asym_id'][..., -1].clone().detach().cpu().numpy()
-    original_residue_index = data['residue_index'][..., -1].clone().detach().cpu().numpy()
-    
-    data = adjust_assembly_features(data, seq_dict)
     
     return data, ini_struct_feats_dict, original_asym_id, original_residue_index
