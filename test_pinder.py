@@ -52,6 +52,7 @@ def main(args):
         config.data.test.pinder_cate_prob = {"holo": 0.0, "apo": 0.0, "pred": 1.0,}
     
     config.data.data_module.num_workers = args.num_workers
+    config.model.pair_denoiser.use_interchain_mask = args.use_interchain_mask
     
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
@@ -169,6 +170,10 @@ if __name__ == "__main__":
         "--model_device", type=str, default="cuda",
         help="""Name of the device on which to run the model. Any valid torch
              device name is accepted (e.g. "cpu", "cuda:0")"""
+    )
+    parser.add_argument(
+        "--use_interchain_mask", action="store_true", default=False,
+        help="""Whether to use interchain mask in docking module for inference"""
     )
     parser.add_argument(
         "--checkpoint_path", type=Path, default=None,
