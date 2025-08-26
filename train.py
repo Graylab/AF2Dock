@@ -456,6 +456,13 @@ def main(args):
     data_module.prepare_data()
     data_module.setup()
     
+    if args.list_of_samples_to_exclude:
+        with open(args.list_of_samples_to_exclude, 'r') as f:
+            samples_to_exclude = f.read().splitlines()
+        data_module.train_dataset = data_module.train_dataset.filter(
+            lambda x: x['id'] not in samples_to_exclude
+        )
+
     callbacks = []
     if(args.checkpoint_every_val_check):
         mc = ModelCheckpoint(
@@ -579,6 +586,10 @@ if __name__ == "__main__":
         help="Path to the pinder entity seq cluster pkl file."
     )
     parser.add_argument(
+        "--three_body_interactions_pkl", type=str, default=None,
+        help="Path to the three body interactions pkl file."
+    )
+    parser.add_argument(
         "--sequential_model", type=bool_type, default=True,
         help="Whether to use the sequential model."
     )
@@ -626,6 +637,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--finetune_lr", type=float, default=None,
         help="""Finetune learning rate. Default is None, meaning no finetuning."""
+    )
+    parser.add_argument(
+        "--filter_train_by_date", type=bool_type, default=True,
+        help="Whether to filter training data by date 2021-09-30"
+    )
+    parser.add_argument(
+        "--list_of_samples_to_exclude", type=str, default=None,
+        help="Path to a text file containing a list of sample IDs to exclude from training"
     )
     parser.add_argument(
         "--log_performance", type=bool_type, default=False,
