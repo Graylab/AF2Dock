@@ -155,7 +155,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                                       for key in ini_sequential_id_to_uniprot if ini_sequential_id_to_uniprot[key] in uniprot_to_holo_seq_sequential_id}
         return ini_seqential_id_to_holo_seq_sequential_id
     
-    def get_part_interface_resi(self, ps_id, abbr, part, index_entry):
+    def get_three_body_part_interface_resi(self, ps_id, abbr, part, index_entry):
         all_comb_ids = [index_entry[f'chain_comb_{idx}'].split(',')[0] for idx in range(3)]
         part_single_id = ps_id.split('--')[{'R': 0, 'L': 1}[abbr]]
         if part == 'lig':
@@ -223,7 +223,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             ps_id = struct_id.split(',')[1].split(':')[0]
                         ps = PinderSystem(ps_id)
                         part_index_entry = self.three_body_pair_index.query(f'id == "{ps_id}"').iloc[0]
-                        part_interface_resi = self.get_part_interface_resi(ps_id, abbr, part, index_entry)
+                        part_interface_resi = self.get_three_body_part_interface_resi(ps_id, abbr, part, index_entry)
                     else:
                         abbr = 'R' if part == 'rec' else 'L'
                         full_n = 'receptor' if part == 'rec' else 'ligand'
