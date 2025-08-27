@@ -90,10 +90,10 @@ def main(args):
                                             right_on='part_id',
                                             how='left').rename(columns={'seq_cluster_40': 'seq_cluster_L'})
             train_index = train_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
-            train_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
+            two_chain_train_index = data_utils.get_subsampled_train_with_seq_cluster(train_index, metadata)
 
-            indexes_to_compute.append(train_index)
-            
+            indexes_to_compute.append(two_chain_train_index)
+
             three_body_interactions = pd.read_pickle(args.three_body_interactions_pkl)
             _, three_chain_train_pair_index = data_utils.get_subsampled_train_with_seq_cluster_three_chain(
                 three_body_interactions,
