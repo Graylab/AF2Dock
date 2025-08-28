@@ -408,7 +408,7 @@ def get_esm_embeddings(seq, client):
     )
     return logits_output.embeddings[0]
 
-def adjust_assembly_features(data, seq_dict, index_offset=200):
+def adjust_assembly_features(data, seq_dict, index_offset=200, add_contiguous_residue_index=False):
 
     seq_all_dict = {part:[seq for key, seq in seq_dict.items() if key.startswith(part)] for part in ['rec', 'lig']}
     seq_to_entity_id = {}
@@ -421,6 +421,8 @@ def adjust_assembly_features(data, seq_dict, index_offset=200):
     new_sym_id = []
     new_entity_id = []
     residue_index_offset_list = []
+    if add_contiguous_residue_index:
+        contiguous_index_list = []
     
     entity_counter = collections.defaultdict(int)
     chain_id = 1
@@ -441,13 +443,20 @@ def adjust_assembly_features(data, seq_dict, index_offset=200):
         part_chain_offset = [index_offset * idx + part_chain_end_idx[idx] for idx in range(len(part_chain_lengths))]
         part_residue_index_offset = np.concatenate([np.ones(length) * offset for length, offset in zip(part_chain_lengths, part_chain_offset)])
         residue_index_offset_list.append(part_residue_index_offset)
+        
+        if add_contiguous_residue_index:
+            contiguous_index_list.append(np.arange(len(seq)).astype(np.int64))
+
+    data['asym_id'] =  np.concatenate(new_asym_id, axis=0).astype(np.int64)
+    data['sym_id'] =  np.concatenate(new_sym_id, axis=0).astype(np.int64)
+    data['entity_id'] =  np.concatenate(new_entity_id, axis=0).astype(np.int64)
     
-    data['asym_id'] =  np.concatenate(new_asym_id, axis=0)
-    data['sym_id'] =  np.concatenate(new_sym_id, axis=0)
-    data['entity_id'] =  np.concatenate(new_entity_id, axis=0)
-    
-    residue_index_offset = np.concatenate(residue_index_offset_list, axis=0)
+    residue_index_offset = np.concatenate(residue_index_offset_list, axis=0).astype(np.int64)
     data['residue_index'] = data['residue_index'] + residue_index_offset
+    
+    if add_contiguous_residue_index:
+        contiguous_residue_index = np.concatenate(contiguous_index_list, axis=0).astype(np.int64)
+        data['contiguous_residue_index'] = contiguous_residue_index
 
     return data
 

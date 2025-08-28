@@ -37,7 +37,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  test_starting_index: int = 0,
                  test_len_threshold: int = None,
                  test_longer_ones: bool = False,
-                 filter_train_by_date: bool = True
+                 filter_train_by_date: bool = True,
+                 list_of_samples_to_exclude: str = None
                  ):
         """
             Args:
@@ -131,6 +132,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 self.three_body_pair_index = data_utils.add_meta_attributes(three_chain_train_pair_index, 
                                                                             entity_meta, chain_meta, 
                                                                             supp_meta, metadata).reset_index(drop=True)
+
+            if list_of_samples_to_exclude:
+                with open(list_of_samples_to_exclude, 'r') as f:
+                    samples_to_exclude = f.read().splitlines()
+                indexes_to_exclude = self.data_index['id'].isin(samples_to_exclude)
+                self.data_index = self.data_index[~indexes_to_exclude].reset_index(drop=True)
 
         elif mode == "predict":
             raise NotImplementedError("Predict mode not implemented yet")
@@ -349,10 +356,12 @@ class AF2DockDataset(torch.utils.data.Dataset):
                 )
                 
                 if self.mode == 'train' and index_entry['three_body']:
-                    data = data_utils.adjust_assembly_features(data, seq_dict)
+                    data = data_utils.adjust_assembly_features(data, seq_dict, add_contiguous_residue_index=True)
+                elif self.mode == 'train':
+                    data["contiguous_residue_index"] = data["residue_index"]
 
                 if self.cached_esm_embedding_folder is not None:
-                    data["esm_embedding"] = np.concatenate(list(esm_embedding_dict.values()), axis=0)
+                    data["esm_embedding"] = np.concatenate(list(esm_embedding_dict.values()), axis=0, dtype=np.float32)
                 data["t"] = t
                 data["tr_0"] = tr_0
                 data["rot_0"] = rot_0
@@ -402,6 +411,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  test_len_threshold: int = None,
                  test_longer_ones: bool = False,
                  filter_train_by_date: bool = True,
+                 list_of_samples_to_exclude: str = None,
                  **kwargs):
         super().__init__()
 
@@ -417,6 +427,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.test_len_threshold = test_len_threshold
         self.test_longer_ones = test_longer_ones
         self.filter_train_by_date = filter_train_by_date
+        self.list_of_samples_to_exclude = list_of_samples_to_exclude
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -424,7 +435,8 @@ class AF2DockDataModule(pl.LightningDataModule):
                               config=self.config,
                               cached_esm_embedding_folder=self.cached_esm_embedding_folder,
                               pinder_entity_seq_cluster_pkl=self.pinder_entity_seq_cluster_pkl,
-                              three_body_interactions_pkl=self.three_body_interactions_pkl)
+                              three_body_interactions_pkl=self.three_body_interactions_pkl,
+                              list_of_samples_to_exclude=self.list_of_samples_to_exclude)
 
         if self.training_mode:
             self.train_dataset = dataset_gen(mode="train",

@@ -124,6 +124,8 @@ class AF2DockWrapper(pl.LightningModule):
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         if self.is_multimer:
+            ori_residue_index = batch['residue_index']
+            batch['residue_index'] = batch['contiguous_residue_index']
             if self.low_prec and (not self.deepspeed):
                 with torch.amp.autocast('cuda', enabled=False):
                     batch = multi_chain_permutation_align(out=outputs,
@@ -133,6 +135,7 @@ class AF2DockWrapper(pl.LightningModule):
                 batch = multi_chain_permutation_align(out=outputs,
                                                     features=batch,
                                                     ground_truth=ground_truth)
+            batch['residue_index'] = ori_residue_index
 
         # Compute loss
         loss, loss_breakdown = self.loss(
@@ -455,13 +458,6 @@ def main(args):
 
     data_module.prepare_data()
     data_module.setup()
-    
-    if args.list_of_samples_to_exclude:
-        with open(args.list_of_samples_to_exclude, 'r') as f:
-            samples_to_exclude = f.read().splitlines()
-        data_module.train_dataset = data_module.train_dataset.filter(
-            lambda x: x['id'] not in samples_to_exclude
-        )
 
     callbacks = []
     if(args.checkpoint_every_val_check):

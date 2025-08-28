@@ -983,7 +983,8 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "esm_embedding": [NUM_RES, None],
                 "t": [None, None],
                 "tr_0": [None, None],
-                "rot_0": [None, None]
+                "rot_0": [None, None],
+                "contiguous_residue_index": [NUM_RES],
             },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
@@ -1012,6 +1013,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "t",
                 "tr_0",
                 "rot_0",
+                "contiguous_residue_index",
             ],
         },
         "predict": {
