@@ -30,7 +30,6 @@ from openfold.utils.tensor_utils import tensor_tree_map
 from esm.models.esmc import ESMC
 
 from AF2Dock.config import model_config
-from AF2Dock.data.datamodule import AF2DockDataModule
 from AF2Dock.model.model import AF2Dock
 from AF2Dock.utils import data_utils, inference_utils
 
@@ -105,9 +104,18 @@ def main(args):
         if not out_dir_data.exists():
             out_dir_data.mkdir(exist_ok=True)
 
-        metrics = {'sample_idx': [], 'iptm': []}
-        
+        metrics_file = out_dir_data / f'{data_id}_s{args.sample_starting_index}_{args.sample_starting_index + args.num_samples - 1}_iptm.csv'
+        if metrics_file.exists() and not args.overwrite_existing:
+            metrics = pd.read_csv(metrics_file).to_dict(orient='list')
+        else:
+            metrics = {'sample_idx': [], 'iptm': []}
+
         for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
+            if not args.overwrite_existing:
+                if sample_idx in metrics['sample_idx']:
+                    logger.info(f"Results exist for {data_id} sample {sample_idx}, skipping")
+                    continue
+            
             curr_atom_pos = []
             atom_masks = []
             for part in ['rec', 'lig']:
@@ -168,11 +176,9 @@ def main(args):
             
             metrics['sample_idx'].append(sample_idx)
             metrics['iptm'].append(out['iptm_score'].item())
+            pd.DataFrame(metrics).sort_values('iptm', ascending=False).to_csv(metrics_file, index=False)
 
         batch = tensor_tree_map(lambda x: x.cpu(), batch)
-        metrics = pd.DataFrame(metrics)
-        metrics = metrics.sort_values('iptm', ascending=False)
-        metrics.to_csv(out_dir_data / f'{data_id}_s{args.sample_starting_index}_{args.sample_starting_index + args.num_samples - 1}_iptm.csv', index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -256,6 +262,11 @@ if __name__ == "__main__":
         "--sample_starting_index", type=int, default=0,
         help="""Starting index for samples. Used to skip the first N
              samples for each target"""
+    )
+    parser.add_argument(
+        "--overwrite_existing", action="store_true", default=False,
+        help="""Whether to overwrite existing results. If False,
+             will skip the prediction if the results files already exists"""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None

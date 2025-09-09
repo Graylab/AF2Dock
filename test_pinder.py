@@ -97,6 +97,11 @@ def main(args):
             out_dir_data.mkdir(exist_ok=True)
 
         for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
+            if not args.overwrite_existing:
+                if (out_dir_data / f'{data_id}_s{sample_idx}_out.pkl').exists():
+                    logger.info(f"Results exist for {data_id} sample {sample_idx}, skipping")
+                    continue
+            
             curr_atom_pos = []
             atom_masks = []
             for part in ['rec', 'lig']:
@@ -218,6 +223,11 @@ if __name__ == "__main__":
         "--sample_starting_index", type=int, default=0,
         help="""Starting index for samples. Used to skip the first N
              samples for each target"""
+    )
+    parser.add_argument(
+        "--overwrite_existing", action="store_true", default=False,
+        help="""Whether to overwrite existing results. If False,
+             will skip the prediction if the results files already exists"""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None
