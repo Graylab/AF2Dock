@@ -38,7 +38,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                  test_len_threshold: int = None,
                  test_longer_ones: bool = False,
                  filter_train_by_date: bool = True,
-                 list_of_samples_to_exclude: str = None
+                 list_of_samples_to_exclude: str = None,
+                 pred_plddt_cutoff: float = None,
                  ):
         """
             Args:
@@ -62,6 +63,7 @@ class AF2DockDataset(torch.utils.data.Dataset):
 
         self.data_pipeline = of_data.DataPipelineMultimer()
         self.feature_pipeline = feature_pipeline.FeaturePipeline(config)
+        self.pred_plddt_cutoff = pred_plddt_cutoff
 
         if mode == "train" or mode == "eval" or mode == "test":
             full_index = get_index()
@@ -289,10 +291,18 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             if self.cached_esm_embedding_folder is not None:
                                 part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             
-                            part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in part_ini_to_holo_map.values() else False for i in range(len(part_seq))]
+                            if self.pred_plddt_cutoff and part_cate == 'pred':
+                                part_ini_resi_high_plddt = data_utils.get_high_plddt_resi(part_ini_struct.atom_array, self.pred_plddt_cutoff)
+                                ini_id_to_keep = list(set(part_ini_resi_high_plddt).intersection(set(part_ini_to_holo_map.keys())))
+                                holo_id_to_keep = [part_ini_to_holo_map[idx] for idx in ini_id_to_keep]
+                            else:
+                                ini_id_to_keep = list(part_ini_to_holo_map.keys())
+                                holo_id_to_keep = list(part_ini_to_holo_map.values())
+                            
+                            part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in holo_id_to_keep else False for i in range(len(part_seq))]
                             indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
                             resi_starts = get_residue_starts(part_ini_struct.atom_array, add_exclusive_stop=True)
-                            part_ini_resi_in_holo = [True if idx in part_ini_to_holo_map.keys() else False for idx in range(len(resi_starts) - 1)]
+                            part_ini_resi_in_holo = [True if idx in ini_id_to_keep else False for idx in range(len(resi_starts) - 1)]
                             for idx, resolved in enumerate(part_ini_resi_in_holo):
                                 if not resolved:
                                     indexes_to_keep[resi_starts[idx]:resi_starts[idx + 1]] = False
@@ -412,6 +422,7 @@ class AF2DockDataModule(pl.LightningDataModule):
                  test_longer_ones: bool = False,
                  filter_train_by_date: bool = True,
                  list_of_samples_to_exclude: str = None,
+                 pred_plddt_cutoff: float = None,
                  **kwargs):
         super().__init__()
 
@@ -428,6 +439,7 @@ class AF2DockDataModule(pl.LightningDataModule):
         self.test_longer_ones = test_longer_ones
         self.filter_train_by_date = filter_train_by_date
         self.list_of_samples_to_exclude = list_of_samples_to_exclude
+        self.pred_plddt_cutoff = pred_plddt_cutoff
 
     def setup(self, stage=None):
         # Most of the arguments are the same for the three datasets 
@@ -436,7 +448,8 @@ class AF2DockDataModule(pl.LightningDataModule):
                               cached_esm_embedding_folder=self.cached_esm_embedding_folder,
                               pinder_entity_seq_cluster_pkl=self.pinder_entity_seq_cluster_pkl,
                               three_body_interactions_pkl=self.three_body_interactions_pkl,
-                              list_of_samples_to_exclude=self.list_of_samples_to_exclude)
+                              list_of_samples_to_exclude=self.list_of_samples_to_exclude,
+                              pred_plddt_cutoff=self.pred_plddt_cutoff)
 
         if self.training_mode:
             self.train_dataset = dataset_gen(mode="train",

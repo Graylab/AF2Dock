@@ -4,7 +4,7 @@ import math
 import collections
 import pandas as pd
 from scipy.spatial.transform import Rotation as R
-from biotite.structure import get_residues
+from biotite.structure import get_residues, get_residue_starts
 from pinder.core.structure.atoms import resn2seq
 
 def fix_resi_auth(resi_auth_split):
@@ -485,3 +485,15 @@ def add_meta_attributes(data_index, entity_meta, chain_meta, supp_meta, metadata
     data_index = data_index.drop(columns=['part_id_x', 'part_id_y', 'holo_R_id', 'holo_L_id'])
 
     return data_index
+
+def get_high_plddt_resi(atom_array, plddt_cutoff, min_num_resi=40, min_ratio=0.8):
+    resi_starts = get_residue_starts(atom_array, add_exclusive_stop=True)
+    per_resi_plddt = []
+    for i in range(len(resi_starts) - 1):
+        mean_resi_plddt = np.mean(atom_array['b_factor'][resi_starts[i]:resi_starts[i + 1]])
+        per_resi_plddt.append(mean_resi_plddt)
+    per_resi_plddt = np.array(per_resi_plddt)
+    high_plddt_resi = np.where(per_resi_plddt >= plddt_cutoff)[0]
+    if (len(high_plddt_resi) < min_num_resi) or (len(high_plddt_resi) / len(per_resi_plddt) < min_ratio):
+        high_plddt_resi = np.arange(len(per_resi_plddt))
+    return high_plddt_resi
