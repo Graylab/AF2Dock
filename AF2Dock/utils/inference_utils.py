@@ -178,10 +178,10 @@ def get_struc(part_struct_file):
     struct_file_type = part_struct_file.split('.')[-1]
     if struct_file_type == 'pdb':
         part_struc_pdb_file = pdb.PDBFile.read(part_struct_file)
-        part_struc = pdb.get_structure(part_struc_pdb_file, model=1)
+        part_struc = pdb.get_structure(part_struc_pdb_file, model=1, extra_fields=["atom_id", "b_factor"])
     elif struct_file_type == 'cif':
         part_struc_cif_file = pdbx.CIFFile.read(part_struct_file)
-        part_struc = pdbx.get_structure(part_struc_cif_file, model=1)
+        part_struc = pdbx.get_structure(part_struc_cif_file, model=1, extra_fields=["atom_id", "b_factor"])
     else:
         raise ValueError(f"Unsupported structure file type: {struct_file_type}")
     
@@ -219,7 +219,7 @@ def get_seqs(target_row, part_struc, part, chains):
     
     return part_seq_full_list, part_resi_is_resolved_list
 
-def load_data(target_row, config, esm_client=None, device='cuda'):
+def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None):
     data_pipeline = of_data.DataPipelineMultimer()
     feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
     
@@ -251,6 +251,13 @@ def load_data(target_row, config, esm_client=None, device='cuda'):
             chain_part_seq = part_seq_full_list[chain_idx]
             chain_part_resi_is_resolved = part_resi_is_resolved_list[chain_idx]
             chain_part_struc = part_struc[part_struc.chain_id == chain_id]
+            
+            if plddt_cutoff:
+                chain_part_resi_high_plddt = data_utils.get_high_plddt_resi(chain_part_struc, plddt_cutoff)
+                chain_part_resi_is_high_plddt = np.array([idx in chain_part_resi_high_plddt for idx in range(len(struc.get_residue_starts(chain_part_struc)))])
+                chain_part_resi_is_resolved[chain_part_resi_is_resolved == True] = chain_part_resi_is_high_plddt
+                chain_part_struc = chain_part_struc[struc.spread_residue_wise(chain_part_struc, chain_part_resi_is_high_plddt)]
+            
             assert len(struc.get_residue_starts(chain_part_struc)) == chain_part_resi_is_resolved.sum(), f"Length mismatch for {part} chain {chain_id}"
             part_ini_atom_positions_chain, part_ini_atom_mask_chain = of_data.get_atom_coords_pinder(chain_part_seq,
                                                                                                      chain_part_resi_is_resolved,

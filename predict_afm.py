@@ -101,7 +101,8 @@ def main(args):
             batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
                                                                                                             AF2Dock_config, 
                                                                                                             None, 
-                                                                                                            args.model_device)
+                                                                                                            args.model_device,
+                                                                                                            args.input_plddt_cutoff)
             
             data_id = target_row['id']
             is_homomer = 2 in batch['sym_id']
@@ -263,6 +264,11 @@ if __name__ == "__main__":
         "--sample_starting_index", type=int, default=0,
         help="""Starting index for samples. Used to skip the first N
              samples for each target"""
+    )
+    parser.add_argument(
+        "--input_plddt_cutoff", type=float, default=None,
+        help="""Only use when using AF predicted structures as input. B factor of input structures will be treated as plddt
+             and residues with plddt < cutoff will be masked off."""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None
