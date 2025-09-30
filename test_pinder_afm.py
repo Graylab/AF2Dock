@@ -80,6 +80,7 @@ def main(args):
         test_starting_index=args.data_starting_index,
         test_len_threshold=args.test_len_threshold,
         test_longer_ones=args.test_longer_ones,
+        pred_plddt_cutoff=args.pred_plddt_cutoff,
     )
     data_module.setup('test')
     
@@ -203,6 +204,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pinder_test_type", type=str, default='holo',
         choices=['holo', 'apo', 'predicted'],
+    )
+    parser.add_argument(
+        "--pred_plddt_cutoff", type=float, default=None,
+        help="""Only used when pinder_test_type is 'predicted'. Cutoff for pLDDT in the predicted monomer structure.
+             Residues with pLDDT lower than the cutoff will be masked out"""
     )
     parser.add_argument(
         "--test_len_threshold", type=int, default=None,
