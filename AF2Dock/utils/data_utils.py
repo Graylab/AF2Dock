@@ -489,8 +489,8 @@ def add_meta_attributes(data_index, entity_meta, chain_meta, supp_meta, metadata
 def get_high_plddt_resi(atom_array, plddt_cutoff, min_num_resi=40, min_ratio=0.8):
     resi_starts = get_residue_starts(atom_array, add_exclusive_stop=True)
     per_resi_plddt = []
-    for i in range(len(resi_starts) - 1):
-        mean_resi_plddt = np.mean(atom_array['b_factor'][resi_starts[i]:resi_starts[i + 1]])
+    for idx in range(len(resi_starts) - 1):
+        mean_resi_plddt = np.mean(atom_array.b_factor[resi_starts[idx]:resi_starts[idx + 1]])
         per_resi_plddt.append(mean_resi_plddt)
     per_resi_plddt = np.array(per_resi_plddt)
     high_plddt_resi = np.where(per_resi_plddt >= plddt_cutoff)[0]
