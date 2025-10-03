@@ -92,10 +92,12 @@ def main(args):
         target_row = predict_targets.iloc[data_idx]
         batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
                                                                                                            config, 
-                                                                                                           esm_client, 
-                                                                                                           args.model_device,
-                                                                                                           args.input_plddt_cutoff)
-        
+                                                                                                           esm_client=esm_client, 
+                                                                                                           device=args.model_device,
+                                                                                                           plddt_cutoff=args.input_plddt_cutoff,
+                                                                                                           min_res_num=args.min_res_num,
+                                                                                                           min_res_ratio=args.min_res_ratio)
+
         data_id = target_row['id']
         is_homomer = 2 in batch['sym_id']
         batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
@@ -268,6 +270,14 @@ if __name__ == "__main__":
         "--input_plddt_cutoff", type=float, default=None,
         help="""Only use when using AF predicted structures as input. B factor of input structures will be treated as plddt
              and residues with plddt < cutoff will be masked off."""
+    )
+    parser.add_argument(
+        "--min_res_num", type=int, default=0,
+        help="""When filtering by plddt, minimum number of residues to keep. If lower, all residues will be kept."""
+    )
+    parser.add_argument(
+        "--min_res_ratio", type=float, default=0.8,
+        help="""When filtering by plddt, minimum ratio of residues to keep. If lower, all residues will be kept."""
     )
     parser.add_argument(
         "--data_random_seed", type=int, default=None

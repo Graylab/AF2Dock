@@ -7,6 +7,11 @@ from scipy.spatial.transform import Rotation as R
 from biotite.structure import get_residues, get_residue_starts
 from pinder.core.structure.atoms import resn2seq
 
+import logging
+logging.basicConfig()
+logger = logging.getLogger(__file__)
+logger.setLevel(level=logging.INFO)
+
 def fix_resi_auth(resi_auth_split):
     #e.g. 4v88 chain BO
     resi_auth_split_fixed = []
@@ -486,7 +491,7 @@ def add_meta_attributes(data_index, entity_meta, chain_meta, supp_meta, metadata
 
     return data_index
 
-def get_high_plddt_resi(atom_array, plddt_cutoff, min_num_resi=40, min_ratio=0.8):
+def get_high_plddt_resi(atom_array, plddt_cutoff, resi_to_keep=None, min_num_resi=40, min_ratio=0.8):
     resi_starts = get_residue_starts(atom_array, add_exclusive_stop=True)
     per_resi_plddt = []
     for idx in range(len(resi_starts) - 1):
@@ -494,6 +499,19 @@ def get_high_plddt_resi(atom_array, plddt_cutoff, min_num_resi=40, min_ratio=0.8
         per_resi_plddt.append(mean_resi_plddt)
     per_resi_plddt = np.array(per_resi_plddt)
     high_plddt_resi = np.where(per_resi_plddt >= plddt_cutoff)[0]
-    if (len(high_plddt_resi) < min_num_resi) or (len(high_plddt_resi) / len(per_resi_plddt) < min_ratio):
+    
+    if resi_to_keep:
+        kept_high_plddt_resi = [idx for idx in high_plddt_resi if idx in resi_to_keep]
+        num_kept_high_plddt = len(kept_high_plddt_resi)
+        num_kept = len(resi_to_keep)
+    else:
+        num_kept_high_plddt = len(high_plddt_resi)
+        num_kept = len(per_resi_plddt)
+    
+    if (num_kept_high_plddt < min_num_resi) or (num_kept_high_plddt / num_kept < min_ratio):
+        logger.info(f"Number of high pLDDT residues ({num_kept_high_plddt}) is less than min_num_resi ({min_num_resi}) \
+            or the ratio ({num_kept_high_plddt}/{num_kept}={num_kept_high_plddt/num_kept:.2f}) is \
+            less than min_ratio ({min_ratio}). Using all residues instead.")
         high_plddt_resi = np.arange(len(per_resi_plddt))
+    
     return high_plddt_resi

@@ -292,7 +292,9 @@ class AF2DockDataset(torch.utils.data.Dataset):
                                 part_esm_embedding = part_esm_embedding[part_holo_ini_overlap_range[0]:part_holo_ini_overlap_range[1] + 1]
                             
                             if self.pred_plddt_cutoff and part_cate == 'pred':
-                                part_ini_resi_high_plddt = data_utils.get_high_plddt_resi(part_ini_struct.atom_array, self.pred_plddt_cutoff)
+                                part_ini_resi_high_plddt = data_utils.get_high_plddt_resi(part_ini_struct.atom_array,
+                                                                                          self.pred_plddt_cutoff,
+                                                                                          resi_to_keep=list(part_ini_to_holo_map.keys()))
                                 ini_id_to_keep = list(set(part_ini_resi_high_plddt).intersection(set(part_ini_to_holo_map.keys())))
                                 holo_id_to_keep = [part_ini_to_holo_map[idx] for idx in ini_id_to_keep]
                             else:
@@ -302,8 +304,8 @@ class AF2DockDataset(torch.utils.data.Dataset):
                             part_ini_resi_resolved = [True if (i + part_holo_ini_overlap_range[0]) in holo_id_to_keep else False for i in range(len(part_seq))]
                             indexes_to_keep = np.ones(len(part_ini_struct.atom_array), dtype=bool)
                             resi_starts = get_residue_starts(part_ini_struct.atom_array, add_exclusive_stop=True)
-                            part_ini_resi_in_holo = [True if idx in ini_id_to_keep else False for idx in range(len(resi_starts) - 1)]
-                            for idx, resolved in enumerate(part_ini_resi_in_holo):
+                            part_ini_resi_to_keep = [True if idx in ini_id_to_keep else False for idx in range(len(resi_starts) - 1)]
+                            for idx, resolved in enumerate(part_ini_resi_to_keep):
                                 if not resolved:
                                     indexes_to_keep[resi_starts[idx]:resi_starts[idx + 1]] = False
                             part_ini_overlapped_atom_array = part_ini_struct.atom_array[indexes_to_keep]

@@ -219,7 +219,7 @@ def get_seqs(target_row, part_struc, part, chains):
     
     return part_seq_full_list, part_resi_is_resolved_list
 
-def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None):
+def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None, min_res_num=0, min_res_ratio=0.8):
     data_pipeline = of_data.DataPipelineMultimer()
     feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
     
@@ -253,7 +253,7 @@ def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=N
             chain_part_struc = part_struc[part_struc.chain_id == chain_id]
             
             if plddt_cutoff:
-                chain_part_resi_high_plddt = data_utils.get_high_plddt_resi(chain_part_struc, plddt_cutoff)
+                chain_part_resi_high_plddt = data_utils.get_high_plddt_resi(chain_part_struc, plddt_cutoff, min_num_resi=min_res_num, min_ratio=min_res_ratio)
                 chain_part_resi_is_high_plddt = np.array([idx in chain_part_resi_high_plddt for idx in range(len(struc.get_residue_starts(chain_part_struc)))])
                 chain_part_resi_is_resolved[chain_part_resi_is_resolved == True] = chain_part_resi_is_high_plddt
                 chain_part_struc = chain_part_struc[struc.spread_residue_wise(chain_part_struc, chain_part_resi_is_high_plddt)]
