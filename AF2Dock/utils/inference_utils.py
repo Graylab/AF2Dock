@@ -155,7 +155,8 @@ def update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
     if swap:
         denoised_atom_pos = [denoised_atom_pos[1], denoised_atom_pos[0]]
     denoised_atom_pos = [denoised_atom_pos[0].to(global_r.dtype) @ global_r + global_x, denoised_atom_pos[1].to(global_r.dtype) @ global_r + global_x]
-    denoised_atom_pos = [denoised_atom_pos[0] * atom_masks[0][..., None], denoised_atom_pos[1] * atom_masks[1][..., None]]
+    if t < 1.0:
+        denoised_atom_pos = [denoised_atom_pos[0] * atom_masks[0][..., None], denoised_atom_pos[1] * atom_masks[1][..., None]]
     lig_coms = [denoised_atom_pos[1][..., ca_idx, :].mean(dim=-2),
                 curr_atom_pos[1][..., ca_idx, :].mean(dim=-2)]
     denoised_atom_pos[1] = denoised_atom_pos[1] - lig_coms[0][..., None, :]
