@@ -142,18 +142,19 @@ def main(args):
             batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().to(
                 batch['template_all_atom_mask'].dtype).to(batch['template_all_atom_mask'].device)
             
-            total_steps =  args.num_steps
+            total_steps =  args.num_steps + args.additional_refine_steps
+            interpolation_steps = args.num_steps
             
             time_indexes = np.arange(0, total_steps)
             if args.merge_first_n_steps > 0:
                 time_indexes = np.insert(time_indexes[args.merge_first_n_steps:], 0, 0)
             
             for tidx, time_index in enumerate(time_indexes):
-                t = time_index / total_steps
+                t = min(time_index / interpolation_steps, 1.0)
                 if tidx == 0 and args.merge_first_n_steps > 0:
-                    s = t + args.merge_first_n_steps / total_steps
+                    s = t + args.merge_first_n_steps / interpolation_steps
                 else:
-                    s = t + 1 / total_steps
+                    s = min(t + 1 / interpolation_steps, 1.0)
                 
                 batch['t'] = batch['t'].new_tensor(np.array([[[[t]]]]))
                 
@@ -228,6 +229,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--merge_first_n_steps", type=int, default=0,
         help="""Merge the first N time steps"""
+    )
+    parser.add_argument(
+        "--additional_refine_steps", type=int, default=0,
+        help="""Number of additional refine steps at t=1"""
     )
     parser.add_argument(
         "--model_device", type=str, default="cuda",

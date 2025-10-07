@@ -165,11 +165,17 @@ def update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
                                                                 curr_atom_pos[1][..., ca_idx, :],
                                                                 atom_masks[1][..., ca_idx].to(torch.bool))
     denoised_atom_pos[1] = denoised_atom_pos[1].to(lig_r.dtype) @ lig_r
-    updated_atom_pos = [denoised_atom_pos[0] * (s - t) / (1 - t) + curr_atom_pos[0] * (1 - s) / (1 - t), 
-                        denoised_atom_pos[1] * (s - t) / (1 - t) + curr_atom_pos[1] * (1 - s) / (1 - t)]
-    lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec() * (s - t) / (1 - t)
-    lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
-    lig_x_t = - lig_x * (s - t) / (1 - t)
+    if t < 1.0:
+        updated_atom_pos = [denoised_atom_pos[0] * (s - t) / (1 - t) + curr_atom_pos[0] * (1 - s) / (1 - t), 
+                            denoised_atom_pos[1] * (s - t) / (1 - t) + curr_atom_pos[1] * (1 - s) / (1 - t)]
+        lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec() * (s - t) / (1 - t)
+        lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
+        lig_x_t = - lig_x * (s - t) / (1 - t)
+    else:
+        updated_atom_pos = [denoised_atom_pos[0], denoised_atom_pos[1]]
+        lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec()
+        lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
+        lig_x_t = - lig_x
     updated_atom_pos[1] = (updated_atom_pos[1] @ lig_r_t + lig_x_t + lig_coms[1][..., None, :]) * atom_masks[1][..., None]
     
     return updated_atom_pos
