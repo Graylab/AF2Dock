@@ -110,35 +110,27 @@ def make_dummy_msa_feats(input_sequence, input_description) -> FeatureDict:
     msa_data_obj = make_dummy_msa_obj(input_sequence, input_description)
     return data_pipeline.make_msa_features([msa_data_obj])
 
-def merge_chain_features(np_chains_list,
-                         pair_msa_sequences: bool,
-                         max_templates: int):
-    """Merges features for multiple chains to single FeatureDict.
+def reorder_with_asym_id(np_example):
+    asym = np_example["asym_id"]
+    unique_asym = np.unique(asym)
+    unique_asym_sorted = np.sort(unique_asym)
+    perm = np.concatenate([np.where(asym == a)[0] for a in unique_asym_sorted], axis=0)
 
-    Args:
-        np_chains_list: List of FeatureDicts for each chain.
-        pair_msa_sequences: Whether to merge paired MSAs.
-        max_templates: The maximum number of templates to include.
+    def apply_perm(arr: np.ndarray, feat_name: str) -> np.ndarray:
+        if feat_name in msa_pairing.MSA_FEATURES or feat_name in msa_pairing.TEMPLATE_FEATURES:
+            out = arr[:, perm]
+        elif feat_name in msa_pairing.SEQ_FEATURES:
+            out = arr[perm]
+        else:
+            out = arr
+        
+        return out
 
-    Returns:
-        Single FeatureDict for entire complex.
-    """
-    np_chains_list = msa_pairing._pad_templates(
-        np_chains_list, max_templates=max_templates)
-    # We don't merge homomers to keep the original chain order.
-    # np_chains_list = _merge_homomers_dense_msa(np_chains_list)
-    # Unpaired MSA features will be always block-diagonalised; paired MSA
-    # features will be concatenated.
-    np_example = msa_pairing._merge_features_from_multiple_chains(
-        np_chains_list, pair_msa_sequences=False)
-    if pair_msa_sequences:
-        np_example = msa_pairing._concatenate_paired_and_unpaired_features(np_example)
-    np_example = msa_pairing._correct_post_merged_feats(
-        np_example=np_example,
-        np_chains_list=np_chains_list,
-        pair_msa_sequences=pair_msa_sequences)
+    reordered = {}
+    for k, v in np_example.items():
+        reordered[k] = apply_perm(v, k)
 
-    return np_example
+    return reordered
 
 def merge_features(all_chain_features, max_templates):
     # from https://github.com/sokrypton/ColabFold/blob/b119520d8f43e1547e1c4352fd090c59a8dbb369/colabfold/batch.py#L913C1-L952C1
@@ -175,11 +167,12 @@ def merge_features(all_chain_features, max_templates):
         {key: value for (key, value) in chain.items() if key in common_features}
         for chain in np_chains_list
     ]
-    np_example = merge_chain_features(
+    np_example = msa_pairing.merge_chain_features(
         np_chains_list=np_chains_list,
         pair_msa_sequences=pair_msa_sequences,
         max_templates=max_templates,
     )
+    np_example = reorder_with_asym_id(np_example)
     np_example = feature_processing_multimer.process_final(np_example)
 
     return np_example
