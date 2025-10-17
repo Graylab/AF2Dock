@@ -1,5 +1,6 @@
 import pickle
 import logging
+from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
@@ -198,7 +199,7 @@ def get_seqs(target_row, part_struc, part, chains):
     part_seq_full_list = []
     part_resi_is_resolved_list = []
     
-    if f'{part}_seq' in target_row:
+    if f'{part}_seq' in target_row and len(target_row[f'{part}_seq']) > 0:
         part_seq_file = target_row[f'{part}_seq']
         with open(part_seq_file, 'r') as f:
             part_seq_aln_str = f.read().strip()
@@ -210,6 +211,9 @@ def get_seqs(target_row, part_struc, part, chains):
             chain_resi_is_resolved = np.array([res != '-' for res in part_seqs_dict[chain_id]])
             part_resi_is_resolved_list.append(chain_resi_is_resolved)
     else:
+        logger.info(
+            f"Loading sequence from the structure file for {part}..."
+        )
         for chain_id in chains:
             chain_part_struc = part_struc[part_struc.chain_id == chain_id]
             _, res_names = struc.get_residues(chain_part_struc)
@@ -226,13 +230,60 @@ def get_seqs(target_row, part_struc, part, chains):
     
     return part_seq_full_list, part_resi_is_resolved_list
 
+def get_mmseqs2_a3ms(msa_path):
+    if msa_path.is_file():
+        msa_files = [msa_path]
+    elif msa_path.is_dir():
+        msa_files = list(msa_path.glob('*.a3m'))
+    else:
+        raise ValueError(f"Invalid unpaired_msa path: {msa_path}")
+    
+    #https://github.com/sokrypton/ColabFold/blob/e8ebd9a612b9da5fe12bbbc09513d5c52a9af633/beta/colabfold.py#L213
+    a3m_lines = {}
+    for a3m_file in msa_files:
+        update_M,M = True,None
+        for line in open(a3m_file,"r"):
+            if len(line) > 0:
+                if "\x00" in line:
+                    line = line.replace("\x00","")
+                    update_M = True
+                if line.startswith(">") and update_M:
+                    M = int(line[1:].rstrip())
+                    update_M = False
+                    if M not in a3m_lines: a3m_lines[M] = []
+                a3m_lines[M].append(line)
+    
+    query_seqs = {M: a3m_lines[M][1].strip() for M in a3m_lines}
+    
+    # return results
+    a3m_dict = {query_seqs[n]:"".join(a3m_lines[n]) for n in a3m_lines.keys()}
+    
+    return a3m_dict
+
+def get_a3ms(target_row):
+    if 'unpaired_msa' in target_row and len(target_row['unpaired_msa']) > 0:
+        unpaired_msa_dict_by_seq = get_mmseqs2_a3ms(Path(target_row['unpaired_msa']))
+    else:
+        unpaired_msa_dict_by_seq = None
+
+    if 'paired_msa' in target_row and len(target_row['paired_msa']) > 0:
+        paired_msa_dict_by_seq = get_mmseqs2_a3ms(Path(target_row['paired_msa']))
+    else:
+        paired_msa_dict_by_seq = None
+
+    return unpaired_msa_dict_by_seq, paired_msa_dict_by_seq
+
 def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None, min_res_num=0, min_res_ratio=0.8):
     data_pipeline = of_data.DataPipelineMultimer()
     feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
     
+    unpaired_msa_dict_by_seq, paired_msa_dict_by_seq = get_a3ms(target_row)
+    
     seq_dict = {}
     ini_struct_feats_dict = {}
     template_fests_dict = {}
+    unpaired_msa_dict = {} if unpaired_msa_dict_by_seq is not None else None
+    paired_msa_dict = {} if paired_msa_dict_by_seq is not None else None
     if config.model.pair_denoiser.use_esm:
         esm_embedding_dict = {}
     
@@ -281,6 +332,10 @@ def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=N
                 "template_all_atom_mask": part_ini_atom_mask_chain[None, ...],
                 "template_aatype": part_ini_aatype[None, ...],
             }
+            if unpaired_msa_dict is not None:
+                unpaired_msa_dict[f'{part}_{chain_id}'] = unpaired_msa_dict_by_seq[chain_part_seq]
+            if paired_msa_dict is not None:
+                paired_msa_dict[f'{part}_{chain_id}'] = paired_msa_dict_by_seq[chain_part_seq]
         
         ini_struct_feats_dict[part] = {
             "ini_all_atom_positions": np.concatenate(part_ini_atom_positions_list, axis=0),
@@ -303,7 +358,9 @@ def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=N
     data = data_pipeline.process_fasta(
         fasta_str,
         template_fests_dict,
-        max_templates=1
+        max_templates=1,
+        unpaired_msa_dict=unpaired_msa_dict,
+        paired_msa_dict=paired_msa_dict,
     )
     
     data["t"] = np.array([[0.0]], dtype=np.float32)
