@@ -11,7 +11,7 @@ from pytorch_lightning.utilities.deepspeed import (
 from biotite import structure as struc
 from biotite.structure.io import pdb, pdbx
 
-from openfold.data import parsers, feature_pipeline
+from openfold.data import parsers
 from openfold.np import protein, residue_constants
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils import multi_chain_permutation
@@ -275,7 +275,7 @@ def get_a3ms(target_row):
 
 def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None, min_res_num=0, min_res_ratio=0.8):
     data_pipeline = of_data.DataPipelineMultimer()
-    feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
+
     
     unpaired_msa_dict_by_seq, paired_msa_dict_by_seq = get_a3ms(target_row)
     
@@ -372,9 +372,5 @@ def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=N
     original_residue_index = data['residue_index']
     
     data = data_utils.adjust_assembly_features(data, seq_dict)
-    
-    data = feat_pipeline.process_features(
-        data, mode='predict', is_multimer=True
-    )
     
     return data, ini_struct_feats_dict, original_asym_id, original_residue_index

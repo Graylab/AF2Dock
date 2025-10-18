@@ -26,6 +26,7 @@ torch.set_grad_enabled(False)
 
 from openfold.config import model_config as of_model_config
 from openfold.np import residue_constants
+from openfold.data import feature_pipeline
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils.import_weights import import_jax_weights_
 
@@ -94,6 +95,8 @@ def main(args):
     else:
         raise ValueError("Either input_csv or both rec_struc_path and lig_struc_path must be provided.")
 
+    feat_pipeline = feature_pipeline.FeaturePipeline(of_config.data)
+
     for model_name in models_to_evaluate:
         model = model = AlphaFoldUnmasked(of_config, unmasked=args.unmasked)
         model = model.eval()
@@ -104,21 +107,28 @@ def main(args):
 
         for data_idx in tqdm(range(args.data_starting_index, len(predict_targets))):
             target_row = predict_targets.iloc[data_idx]
-            batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
+            data, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
                                                                                                             AF2Dock_config, 
                                                                                                             None, 
                                                                                                             args.model_device,
                                                                                                             args.input_plddt_cutoff)
             
             data_id = target_row['id']
-            is_homomer = 2 in batch['sym_id']
-            batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
             
             out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
             if not out_dir_data.exists():
                 out_dir_data.mkdir(exist_ok=True)
             
             for sample_idx in tqdm(range(args.sample_starting_index, args.sample_starting_index + args.num_samples)):
+                
+                # process feature each time for msa random subsampling and masking
+                batch = feat_pipeline.process_features(
+                    data, mode='predict', is_multimer=True
+                )
+                
+                is_homomer = 2 in batch['sym_id']
+                batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
+                
                 curr_atom_pos = []
                 atom_masks = []
                 for part in ['rec', 'lig']:

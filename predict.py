@@ -26,6 +26,7 @@ torch.set_grad_enabled(False)
 
 from openfold.np import residue_constants
 from openfold.utils.tensor_utils import tensor_tree_map
+from openfold.data import feature_pipeline
 
 from esm.models.esmc import ESMC
 
@@ -87,10 +88,12 @@ def main(args):
         predict_targets = pd.DataFrame(predict_targets)
     else:
         raise ValueError("Either input_csv or both rec_struc_path and lig_struc_path must be provided.")
+
+    feat_pipeline = feature_pipeline.FeaturePipeline(config.data)
     
     for data_idx in tqdm(range(args.data_starting_index, len(predict_targets))):
         target_row = predict_targets.iloc[data_idx]
-        batch, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
+        data, ini_struct_feats_dict, original_asym_id, original_residue_index = inference_utils.load_data(target_row, 
                                                                                                            config, 
                                                                                                            esm_client=esm_client, 
                                                                                                            device=args.model_device,
@@ -99,8 +102,6 @@ def main(args):
                                                                                                            min_res_ratio=args.min_res_ratio)
 
         data_id = target_row['id']
-        is_homomer = 2 in batch['sym_id']
-        batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
         
         out_dir_data = output_dir_base / f'{data_idx}_{data_id}'
         if not out_dir_data.exists():
@@ -117,6 +118,18 @@ def main(args):
                 if sample_idx in metrics['sample_idx']:
                     logger.info(f"Results exist for {data_id} sample {sample_idx}, skipping")
                     continue
+            
+            # process feature each time for msa random subsampling and masking
+            batch = feat_pipeline.process_features(
+                data, mode='predict', is_multimer=True
+            )
+            # Zero out extra MSA features for when using MSA inputs
+            batch['extra_msa'] = torch.zeros_like(batch['extra_msa'])
+            batch['extra_msa_mask'] = torch.zeros_like(batch['extra_msa_mask'])
+            batch['extra_deletion_matrix'] = torch.zeros_like(batch['extra_deletion_matrix'])
+            
+            is_homomer = 2 in batch['sym_id']
+            batch = tensor_tree_map(lambda x: x.unsqueeze(0).to(args.model_device), batch)
             
             curr_atom_pos = []
             atom_masks = []
