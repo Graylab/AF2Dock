@@ -45,6 +45,8 @@ def main(args):
     of_config.data.predict.max_extra_msa = 17
     of_config.data.predict.max_templates = 1
     of_config.data.predict.masked_msa_replace_fraction = 0.0
+    of_config.data.common.max_recycling_iters = 0
+    of_config.data.common.use_template_torsion_angles = False
     
     if args.experiment_config_json:
         with open(args.experiment_config_json, 'r') as f:
