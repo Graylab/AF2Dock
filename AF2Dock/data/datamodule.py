@@ -17,8 +17,6 @@ from openfold.data import (
 from openfold.np import residue_constants
 from pinder.core import PinderSystem, get_index, get_supplementary_data, get_metadata
 
-import sys
-sys.path.append(str(Path(__file__).parent.parent.parent))
 from AF2Dock.data import of_data
 from AF2Dock.utils import data_utils
 

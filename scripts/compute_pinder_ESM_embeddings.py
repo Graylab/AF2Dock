@@ -10,8 +10,6 @@ from pinder.core import PinderSystem, get_index, get_supplementary_data, get_met
 
 from esm.models.esmc import ESMC
 
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
 from AF2Dock.utils import data_utils
 
 logger = logging.getLogger(__name__)

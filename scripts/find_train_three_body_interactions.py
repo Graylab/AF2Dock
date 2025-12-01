@@ -6,8 +6,6 @@ import tqdm
 import networkx as nx
 from pinder.core import get_index, get_supplementary_data, get_metadata
 
-import sys
-sys.path.append(str(Path(__file__).parent.parent))
 from AF2Dock.utils import data_utils
 
 def add_args(parser):

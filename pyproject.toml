@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "AF2Dock"
+version = "1.0.0"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch==2.5",
+    "tqdm",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+    "ml-collections",
+    "pytorch-lightning",
+    "biotite",
+    "esm",
+    "httpx",
+    "pinder",
+    "DockQ",
+]
+
+[tool.setuptools.packages]
+find = {}
