@@ -152,7 +152,8 @@ def main(args):
             
             template_all_atom_mask = torch.cat(atom_masks, dim=-2)
             assert template_all_atom_mask.shape[-2] == batch['template_all_atom_mask'].shape[-3]
-            batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().to(
+            batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().expand(
+                *([-1] * (len(batch['template_all_atom_mask'].shape) - 1) + [batch['template_all_atom_mask'].size(dim=-1)])).to(
                 batch['template_all_atom_mask'].dtype).to(batch['template_all_atom_mask'].device)
             
             total_steps =  args.num_steps + args.additional_refine_steps
@@ -173,7 +174,8 @@ def main(args):
                 
                 template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
                 assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
-                batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().to(
+                batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().expand(
+                    *([-1] * (len(batch['template_all_atom_positions'].shape) - 1) + [batch['template_all_atom_positions'].size(dim=-1)])).to(
                     batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
                 
                 out = model(batch)
