@@ -13,13 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import MutableMapping, Tuple
+from typing import MutableMapping, Tuple, Sequence
+import collections
 import numpy as np
 from openfold.data import (
     parsers,
     msa_pairing,
     feature_processing_multimer,
     data_pipeline,
+    msa_identifiers,
 )
 import openfold.np.residue_constants as residue_constants
 FeatureDict = MutableMapping[str, np.ndarray]
@@ -109,6 +111,28 @@ def make_dummy_msa_feats(input_sequence, input_description) -> FeatureDict:
     msa_data_obj = make_dummy_msa_obj(input_sequence, input_description)
     return data_pipeline.make_msa_features([msa_data_obj])
 
+def reorder_with_asym_id(np_example):
+    asym = np_example["asym_id"]
+    unique_asym = np.unique(asym)
+    unique_asym_sorted = np.sort(unique_asym)
+    perm = np.concatenate([np.where(asym == a)[0] for a in unique_asym_sorted], axis=0)
+
+    def apply_perm(arr: np.ndarray, feat_name: str) -> np.ndarray:
+        if feat_name in msa_pairing.MSA_FEATURES or feat_name in msa_pairing.TEMPLATE_FEATURES:
+            out = arr[:, perm]
+        elif feat_name in msa_pairing.SEQ_FEATURES:
+            out = arr[perm]
+        else:
+            out = arr
+        
+        return out
+
+    reordered = {}
+    for k, v in np_example.items():
+        reordered[k] = apply_perm(v, k)
+
+    return reordered
+
 def merge_features(all_chain_features, max_templates):
     # from https://github.com/sokrypton/ColabFold/blob/b119520d8f43e1547e1c4352fd090c59a8dbb369/colabfold/batch.py#L913C1-L952C1
     feature_processing_multimer.process_unmerged_features(all_chain_features)
@@ -144,14 +168,105 @@ def merge_features(all_chain_features, max_templates):
         {key: value for (key, value) in chain.items() if key in common_features}
         for chain in np_chains_list
     ]
-    np_example = feature_processing_multimer.msa_pairing.merge_chain_features(
+    np_example = msa_pairing.merge_chain_features(
         np_chains_list=np_chains_list,
         pair_msa_sequences=pair_msa_sequences,
         max_templates=max_templates,
     )
+    np_example = reorder_with_asym_id(np_example)
     np_example = feature_processing_multimer.process_final(np_example)
 
     return np_example
+
+def add_assembly_features(
+    all_chain_features: MutableMapping[str, FeatureDict],
+) -> MutableMapping[str, FeatureDict]:
+    """Add features to distinguish between chains. Modified to maintain order.
+
+    Args:
+      all_chain_features: A dictionary which maps chain_id to a dictionary of
+        features for each chain.
+
+    Returns:
+      all_chain_features: A dictionary which maps strings of the form
+        `<seq_id>_<sym_id>` to the corresponding chain features. E.g. two
+        chains from a homodimer would have keys A_1 and A_2. Two chains from a
+        heterodimer would have keys A_1 and B_1.
+    """
+    # First pass: determine entity_id for each unique sequence
+    seq_to_entity_id = {}
+    for chain_id, chain_features in all_chain_features.items():
+        seq = str(chain_features['sequence'])
+        if seq not in seq_to_entity_id:
+            seq_to_entity_id[seq] = len(seq_to_entity_id) + 1
+    
+    # Track how many times we've seen each entity (for sym_id assignment)
+    entity_counter = collections.defaultdict(int)
+    
+    # Process chains in original order
+    new_all_chain_features = {}
+    chain_id = 1
+    for original_chain_id, chain_features in all_chain_features.items():
+        seq = str(chain_features['sequence'])
+        entity_id = seq_to_entity_id[seq]
+        entity_counter[entity_id] += 1
+        sym_id = entity_counter[entity_id]
+      
+        new_all_chain_features[
+            f'{data_pipeline.int_id_to_str_id(entity_id)}_{sym_id}'] = chain_features
+      
+        seq_length = chain_features['seq_length']
+        chain_features['asym_id'] = (
+            chain_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_features['sym_id'] = (
+            sym_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_features['entity_id'] = (
+            entity_id * np.ones(seq_length)
+            ).astype(np.int64)
+        chain_id += 1
+
+    return new_all_chain_features
+
+def make_msa_features_no_dedup(msas: Sequence[parsers.Msa]) -> FeatureDict:
+    """Constructs a feature dict of MSA features without deduplication."""
+    if not msas:
+        raise ValueError("At least one MSA must be provided.")
+
+    int_msa = []
+    deletion_matrix = []
+    species_ids = []
+    seen_sequences = set()
+    for msa_index, msa in enumerate(msas):
+        if not msa:
+            raise ValueError(
+                f"MSA {msa_index} must contain at least one sequence."
+            )
+        for sequence_index, sequence in enumerate(msa.sequences):
+            # if sequence in seen_sequences:
+            #     continue
+            # seen_sequences.add(sequence)
+            int_msa.append(
+                [residue_constants.HHBLITS_AA_TO_ID[res] for res in sequence]
+            )
+
+            deletion_matrix.append(msa.deletion_matrix[sequence_index])
+            identifiers = msa_identifiers.get_identifiers(
+                msa.descriptions[sequence_index]
+            )
+            species_ids.append(identifiers.species_id.encode('utf-8'))
+
+    num_res = len(msas[0].sequences[0])
+    num_alignments = len(int_msa)
+    features = {}
+    features["deletion_matrix_int"] = np.array(deletion_matrix, dtype=np.int32)
+    features["msa"] = np.array(int_msa, dtype=np.int32)
+    features["num_alignments"] = np.array(
+        [num_alignments] * num_res, dtype=np.int32
+    )
+    features["msa_species_identifiers"] = np.array(species_ids, dtype=object)
+    return features
 
 class DataPipelineMultimer:
     """Assembles the input features."""
@@ -160,10 +275,21 @@ class DataPipelineMultimer:
         """Initializes the data pipeline."""
         pass
 
+    @staticmethod
+    def _all_seq_msa_features(msa_obj):
+        all_seq_features = make_msa_features_no_dedup([msa_obj])
+        valid_feats = msa_pairing.MSA_FEATURES
+        feats = {
+            f'{k}_all_seq': v for k, v in all_seq_features.items()
+            if k in valid_feats
+        }
+        return feats
+
     def process_sequence(
         self,
         input_sequence: str,
         input_description: str,
+        unpaired_msa_dict: dict = None,
     ) -> FeatureDict:
         num_res = len(input_sequence)
 
@@ -173,7 +299,11 @@ class DataPipelineMultimer:
             num_res=num_res,
         )
 
-        msa_features = make_dummy_msa_feats(input_sequence, input_description)
+        if unpaired_msa_dict is None:
+            msa_features = make_dummy_msa_feats(input_sequence, input_description)
+        else:
+            msa = parsers.parse_a3m(unpaired_msa_dict[input_description])
+            msa_features = data_pipeline.make_msa_features([msa])
 
         return {
             **sequence_features,
@@ -185,48 +315,46 @@ class DataPipelineMultimer:
             chain_id: str,
             sequence: str,
             description: str,
+            unpaired_msa_dict: dict = None,
+            paired_msa_dict: dict = None,
     ) -> FeatureDict:
         """Runs the pipeline on a single chain."""
 
         chain_features = self.process_sequence(
             input_sequence=sequence,
             input_description=description,
+            unpaired_msa_dict=unpaired_msa_dict,
         )
 
-        all_seq_msa_features = self._all_seq_msa_features_dummy(sequence, chain_id)
+        if paired_msa_dict is None:
+            msa_obj = make_dummy_msa_obj(sequence, chain_id)
+        else:
+            msa_obj = parsers.parse_a3m(paired_msa_dict[description])
+        all_seq_msa_features = self._all_seq_msa_features(msa_obj)
         chain_features.update(all_seq_msa_features)
         
         return chain_features
-
-    @staticmethod
-    def _all_seq_msa_features_dummy(sequence, chain_id):
-        """Get dummy MSA features for single sequences"""
-        msa_data_obj = make_dummy_msa_obj(sequence, chain_id)
-        all_seq_features = data_pipeline.make_msa_features([msa_data_obj])
-        valid_feats = msa_pairing.MSA_FEATURES
-        feats = {
-            f'{k}_all_seq': v for k, v in all_seq_features.items()
-            if k in valid_feats
-        }
-        return feats
 
     def process_fasta(self,
                       input_fasta_str: str,
                       struct_feats_at_t_dict,
                       max_templates,
+                      unpaired_msa_dict: dict = None,
+                      paired_msa_dict: dict = None,
                       ) -> FeatureDict:
         """Creates features."""
 
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
             chain_features = self._process_single_chain(
                 chain_id=desc,
                 sequence=seq,
                 description=desc,
+                unpaired_msa_dict=unpaired_msa_dict,
+                paired_msa_dict=paired_msa_dict,
             )
 
             chain_features.update(struct_feats_at_t_dict[desc])
@@ -237,7 +365,7 @@ class DataPipelineMultimer:
             )
             all_chain_features[desc] = chain_features
 
-        all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
+        all_chain_features = add_assembly_features(all_chain_features)
 
         np_example = merge_features(all_chain_features, max_templates)
 
@@ -257,7 +385,6 @@ class DataPipelineMultimer:
         input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
 
         all_chain_features = {}
-        is_homomer_or_monomer = len(set(input_seqs)) == 1
 
         for desc, seq in zip(input_descs, input_seqs):
             chain_features = self._process_single_chain(
@@ -278,7 +405,7 @@ class DataPipelineMultimer:
 
             all_chain_features[desc] = chain_features
 
-        all_chain_features = data_pipeline.add_assembly_features(all_chain_features)
+        all_chain_features = add_assembly_features(all_chain_features)
 
         np_example = merge_features(all_chain_features, max_templates)
 

@@ -26,8 +26,24 @@ from functools import partial
 import logging
 from DockQ import DockQ
 
+def merge_chains(model, chains_to_merge):
+    # current_chain_end = list(model[chains_to_merge[0]].get_residues())[-1].id[1]
+    full_seq = [model[chains_to_merge[0]].sequence]
+    for chain in chains_to_merge[1:]:
+        full_seq.append(model[chain].sequence)
+        for i, res in enumerate(model[chain]):
+            # res.id = (res.id[0], current_chain_end + res.id[1], res.id[2])
+            res.id = (chain, res.id[1], res.id[2])
+            model[chains_to_merge[0]].add(res)
+        model.detach_child(chain)
+        # current_chain_end = list(model[chains_to_merge[0]].get_residues())[-1].id[2]
+    model[chains_to_merge[0]].sequence = "".join(full_seq)
+    model[chains_to_merge[0]].id = "".join(chains_to_merge)
+    return model
+
 def compute_metrics(model, native, mapping=None, small_molecule=False, allowed_mismatches=0,
-                    no_align=False, capri_peptide=False, n_cpu=1, max_chunk=1000):
+                    no_align=False, capri_peptide=False, n_cpu=1, max_chunk=1000,
+                    chains_to_merge=None):
 
     initial_mapping, model_chains, native_chains = DockQ.format_mapping(
         mapping, small_molecule
@@ -38,6 +54,13 @@ def compute_metrics(model, native, mapping=None, small_molecule=False, allowed_m
     native_structure = DockQ.load_PDB(
         native, chains=native_chains, small_molecule=small_molecule
     )
+    
+    if chains_to_merge is not None:
+        for chain_set in chains_to_merge['model']:
+            model_structure = merge_chains(model_structure, chain_set)
+        for chain_set in chains_to_merge['native']:
+            native_structure = merge_chains(native_structure, chain_set)
+    
     # check user-given chains are in the structures
     model_chains = [c.id for c in model_structure] if not model_chains else model_chains
     native_chains = (

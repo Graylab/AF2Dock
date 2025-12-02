@@ -1,5 +1,6 @@
 import pickle
 import logging
+from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import torch
@@ -7,9 +8,16 @@ from pytorch_lightning.utilities.deepspeed import (
     convert_zero_checkpoint_to_fp32_state_dict
 )
 
+from biotite import structure as struc
+from biotite.structure.io import pdb, pdbx
+
+from openfold.data import parsers
 from openfold.np import protein, residue_constants
 from openfold.utils.tensor_utils import tensor_tree_map
 from openfold.utils import multi_chain_permutation
+
+from AF2Dock.data import of_data
+from AF2Dock.utils import data_utils
 
 logging.basicConfig()
 logger = logging.getLogger(__file__)
@@ -73,13 +81,16 @@ def get_global_rigid_body_transform(denoised_atom_pos, curr_atom_pos, atom_masks
     
     return global_r, global_x, swap
     
-def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, out_template=False):
+def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True,
+                 out_template=False, original_residue_index=None, original_asym_id=None):
     out_items_to_save = ['plddt', 'ptm_score', 'iptm_score', 'weighted_ptm_score', 
                          'predicted_aligned_error', 'max_predicted_aligned_error',
                          'final_atom_positions', 'final_atom_mask']
     aatype = batch['aatype'][0][..., -1].clone().detach().cpu().numpy()
-    residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy() + 1
-    chain_index = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy() - 1
+    residue_index = batch["residue_index"][0][..., -1].clone().detach().cpu().numpy()
+    residue_index = residue_index + 1
+    asym_id = batch["asym_id"][0][..., -1].clone().detach().cpu().numpy()
+    chain_index = asym_id - 1
     template_all_atom_mask_out = batch['template_all_atom_mask'].clone().detach().cpu().numpy()[0][0][..., -1]
     
     if out_template:
@@ -111,16 +122,27 @@ def write_output(batch, out, outpath, outprefix, out_pred=True, out_conf=True, o
         )
         with open(outpath / (outprefix+'.pdb'), 'w') as fp:
             fp.write(protein.to_pdb(prot_pred))
-        prot_pred_masked = protein.Protein(
-            aatype=aatype,
-            atom_positions=all_atom_pos_out,
-            atom_mask=template_all_atom_mask_out,
-            residue_index=residue_index,
-            b_factors=b_factors_out,
-            chain_index=chain_index,
-        )
-        with open(outpath / (outprefix+'_masked.pdb'), 'w') as fp:
-            fp.write(protein.to_pdb(prot_pred_masked))
+        # prot_pred_masked = protein.Protein(
+        #     aatype=aatype,
+        #     atom_positions=all_atom_pos_out,
+        #     atom_mask=template_all_atom_mask_out,
+        #     residue_index=residue_index,
+        #     b_factors=b_factors_out,
+        #     chain_index=chain_index,
+        # )
+        # with open(outpath / (outprefix+'_masked.pdb'), 'w') as fp:
+        #     fp.write(protein.to_pdb(prot_pred_masked))
+        if original_residue_index is not None and original_asym_id is not None:
+            prot_pred_orig = protein.Protein(
+                aatype=aatype,
+                atom_positions=all_atom_pos_out,
+                atom_mask=all_atom_mask_out,
+                residue_index=original_residue_index + 1,
+                b_factors=b_factors_out,
+                chain_index=original_asym_id - 1,
+            )
+            with open(outpath / (outprefix+'_ori_chain.pdb'), 'w') as fp:
+                fp.write(protein.to_pdb(prot_pred_orig))
         if out_conf:
             out = {k: v for k, v in out.items() if k in out_items_to_save}
             with open(outpath / (outprefix+'_out.pkl'), "wb") as fp:
@@ -134,7 +156,8 @@ def update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
     if swap:
         denoised_atom_pos = [denoised_atom_pos[1], denoised_atom_pos[0]]
     denoised_atom_pos = [denoised_atom_pos[0].to(global_r.dtype) @ global_r + global_x, denoised_atom_pos[1].to(global_r.dtype) @ global_r + global_x]
-    denoised_atom_pos = [denoised_atom_pos[0] * atom_masks[0][..., None], denoised_atom_pos[1] * atom_masks[1][..., None]]
+    if t < 1.0:
+        denoised_atom_pos = [denoised_atom_pos[0] * atom_masks[0][..., None], denoised_atom_pos[1] * atom_masks[1][..., None]]
     lig_coms = [denoised_atom_pos[1][..., ca_idx, :].mean(dim=-2),
                 curr_atom_pos[1][..., ca_idx, :].mean(dim=-2)]
     denoised_atom_pos[1] = denoised_atom_pos[1] - lig_coms[0][..., None, :]
@@ -144,11 +167,210 @@ def update_pose(batch, out, atom_masks, curr_atom_pos, s, t, ca_idx, is_homomer)
                                                                 curr_atom_pos[1][..., ca_idx, :],
                                                                 atom_masks[1][..., ca_idx].to(torch.bool))
     denoised_atom_pos[1] = denoised_atom_pos[1].to(lig_r.dtype) @ lig_r
-    updated_atom_pos = [denoised_atom_pos[0] * (s - t) / (1 - t) + curr_atom_pos[0] * (1 - s) / (1 - t), 
-                        denoised_atom_pos[1] * (s - t) / (1 - t) + curr_atom_pos[1] * (1 - s) / (1 - t)]
-    lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec() * (s - t) / (1 - t)
-    lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
-    lig_x_t = - lig_x * (s - t) / (1 - t)
+    if t < 1.0:
+        updated_atom_pos = [denoised_atom_pos[0] * (s - t) / (1 - t) + curr_atom_pos[0] * (1 - s) / (1 - t), 
+                            denoised_atom_pos[1] * (s - t) / (1 - t) + curr_atom_pos[1] * (1 - s) / (1 - t)]
+        lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec() * (s - t) / (1 - t)
+        lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
+        lig_x_t = - lig_x * (s - t) / (1 - t)
+    else:
+        updated_atom_pos = [denoised_atom_pos[0], denoised_atom_pos[1]]
+        lig_r_t = - R.from_matrix(lig_r.numpy()).as_rotvec()
+        lig_r_t = lig_r.new_tensor(R.from_rotvec(lig_r_t).as_matrix())
+        lig_x_t = - lig_x
     updated_atom_pos[1] = (updated_atom_pos[1] @ lig_r_t + lig_x_t + lig_coms[1][..., None, :]) * atom_masks[1][..., None]
     
     return updated_atom_pos
+
+def get_struc(part_struct_file):
+    struct_file_type = part_struct_file.split('.')[-1]
+    if struct_file_type == 'pdb':
+        part_struc_pdb_file = pdb.PDBFile.read(part_struct_file)
+        part_struc = pdb.get_structure(part_struc_pdb_file, model=1, extra_fields=["atom_id", "b_factor"])
+    elif struct_file_type == 'cif':
+        part_struc_cif_file = pdbx.CIFFile.read(part_struct_file)
+        part_struc = pdbx.get_structure(part_struc_cif_file, model=1, extra_fields=["atom_id", "b_factor"])
+    else:
+        raise ValueError(f"Unsupported structure file type: {struct_file_type}")
+    
+    return part_struc
+
+def get_seqs(target_row, part_struc, part, chains):
+    part_seq_full_list = []
+    part_resi_is_resolved_list = []
+    
+    if f'{part}_seq' in target_row and len(target_row[f'{part}_seq']) > 0:
+        part_seq_file = target_row[f'{part}_seq']
+        with open(part_seq_file, 'r') as f:
+            part_seq_aln_str = f.read().strip()
+        part_seqs_aln, part_seqs_aln_tags = parsers.parse_fasta(part_seq_aln_str)
+        part_seqs_dict = {tag: seq for tag, seq in zip(part_seqs_aln_tags, part_seqs_aln)}
+        
+        for chain_id in chains:
+            part_seq_full_list.append(part_seqs_dict[f'{chain_id}_full'])
+            chain_resi_is_resolved = np.array([res != '-' for res in part_seqs_dict[chain_id]])
+            part_resi_is_resolved_list.append(chain_resi_is_resolved)
+    else:
+        logger.info(
+            f"Loading sequence from the structure file for {part}..."
+        )
+        for chain_id in chains:
+            chain_part_struc = part_struc[part_struc.chain_id == chain_id]
+            _, res_names = struc.get_residues(chain_part_struc)
+            chain_part_seq = []
+            for res_name in res_names:
+                olc = struc.info.one_letter_code(res_name)
+                if olc is None or len(olc) != 1:
+                    olc = 'X'
+                chain_part_seq.append(olc)
+            chain_part_seq = ''.join(chain_part_seq)
+            part_seq_full_list.append(chain_part_seq)
+            chain_resi_is_resolved = np.ones(len(chain_part_seq), dtype=bool)
+            part_resi_is_resolved_list.append(chain_resi_is_resolved)
+    
+    return part_seq_full_list, part_resi_is_resolved_list
+
+def get_mmseqs2_a3ms(msa_path):
+    if msa_path.is_file():
+        msa_files = [msa_path]
+    elif msa_path.is_dir():
+        msa_files = list(msa_path.glob('*.a3m'))
+    else:
+        raise ValueError(f"Invalid unpaired_msa path: {msa_path}")
+    
+    #https://github.com/sokrypton/ColabFold/blob/e8ebd9a612b9da5fe12bbbc09513d5c52a9af633/beta/colabfold.py#L213
+    a3m_lines = {}
+    for a3m_file in msa_files:
+        update_M,M = True,None
+        for line in open(a3m_file,"r"):
+            if len(line) > 0:
+                if "\x00" in line:
+                    line = line.replace("\x00","")
+                    update_M = True
+                if line.startswith(">") and update_M:
+                    M = int(line[1:].rstrip())
+                    update_M = False
+                    if M not in a3m_lines: a3m_lines[M] = []
+                a3m_lines[M].append(line)
+    
+    query_seqs = {M: a3m_lines[M][1].strip() for M in a3m_lines}
+    
+    # return results
+    a3m_dict = {query_seqs[n]:"".join(a3m_lines[n]) for n in a3m_lines.keys()}
+    
+    return a3m_dict
+
+def get_a3ms(target_row):
+    if 'unpaired_msa' in target_row and len(target_row['unpaired_msa']) > 0:
+        unpaired_msa_dict_by_seq = get_mmseqs2_a3ms(Path(target_row['unpaired_msa']))
+    else:
+        unpaired_msa_dict_by_seq = None
+
+    if 'paired_msa' in target_row and len(target_row['paired_msa']) > 0:
+        paired_msa_dict_by_seq = get_mmseqs2_a3ms(Path(target_row['paired_msa']))
+    else:
+        paired_msa_dict_by_seq = None
+
+    return unpaired_msa_dict_by_seq, paired_msa_dict_by_seq
+
+def load_data(target_row, config, esm_client=None, device='cuda', plddt_cutoff=None, min_res_num=0, min_res_ratio=0.8):
+    data_pipeline = of_data.DataPipelineMultimer()
+
+    
+    unpaired_msa_dict_by_seq, paired_msa_dict_by_seq = get_a3ms(target_row)
+    
+    seq_dict = {}
+    ini_struct_feats_dict = {}
+    template_fests_dict = {}
+    unpaired_msa_dict = {} if unpaired_msa_dict_by_seq is not None else None
+    paired_msa_dict = {} if paired_msa_dict_by_seq is not None else None
+    if config.model.pair_denoiser.use_esm:
+        esm_embedding_dict = {}
+    
+    for part in ['rec', 'lig']:
+        part_struct_file = target_row[part]
+        part_struc = get_struc(part_struct_file)
+        
+        part_struc = part_struc[part_struc.hetero == False]
+        
+        chains = struc.get_chains(part_struc)
+        if len(chains) == 1 and chains[0] == '':
+            part_struc.chain_id = ['A'] * len(part_struc.chain_id)
+            chains = struc.get_chains(part_struc)
+
+        part_seq_full_list, part_resi_is_resolved_list = get_seqs(target_row,
+                                                                  part_struc,
+                                                                  part,
+                                                                  chains)
+        
+        part_ini_atom_positions_list = []
+        part_ini_atom_mask_list = []
+        for chain_idx, chain_id in enumerate(chains):
+            chain_part_seq = part_seq_full_list[chain_idx]
+            chain_part_resi_is_resolved = part_resi_is_resolved_list[chain_idx]
+            chain_part_struc = part_struc[part_struc.chain_id == chain_id]
+            
+            if plddt_cutoff:
+                chain_part_resi_high_plddt = data_utils.get_high_plddt_resi(chain_part_struc, plddt_cutoff, min_num_resi=min_res_num, min_ratio=min_res_ratio)
+                chain_part_resi_is_high_plddt = np.array([idx in chain_part_resi_high_plddt for idx in range(len(struc.get_residue_starts(chain_part_struc)))])
+                chain_part_resi_is_resolved[chain_part_resi_is_resolved == True] = chain_part_resi_is_high_plddt
+                chain_part_struc = chain_part_struc[struc.spread_residue_wise(chain_part_struc, chain_part_resi_is_high_plddt)]
+            
+            assert len(struc.get_residue_starts(chain_part_struc)) == chain_part_resi_is_resolved.sum(), f"Length mismatch for {part} chain {chain_id}"
+            part_ini_atom_positions_chain, part_ini_atom_mask_chain = of_data.get_atom_coords_pinder(chain_part_seq,
+                                                                                                     chain_part_resi_is_resolved,
+                                                                                                     chain_part_struc)
+            part_ini_atom_positions_list.append(part_ini_atom_positions_chain)
+            part_ini_atom_mask_list.append(part_ini_atom_mask_chain)
+            
+            part_ini_aatype = np.array(residue_constants.sequence_to_onehot(
+                chain_part_seq, residue_constants.HHBLITS_AA_TO_ID
+            ))
+            seq_dict[f'{part}_{chain_id}'] = chain_part_seq
+            template_fests_dict[f'{part}_{chain_id}'] = {
+                "template_all_atom_positions": part_ini_atom_positions_chain[None, ...],
+                "template_all_atom_mask": part_ini_atom_mask_chain[None, ...],
+                "template_aatype": part_ini_aatype[None, ...],
+            }
+            if unpaired_msa_dict is not None:
+                unpaired_msa_dict[f'{part}_{chain_id}'] = unpaired_msa_dict_by_seq[chain_part_seq]
+            if paired_msa_dict is not None:
+                paired_msa_dict[f'{part}_{chain_id}'] = paired_msa_dict_by_seq[chain_part_seq]
+        
+        ini_struct_feats_dict[part] = {
+            "ini_all_atom_positions": np.concatenate(part_ini_atom_positions_list, axis=0),
+            "ini_all_atom_mask": np.concatenate(part_ini_atom_mask_list, axis=0),
+        }
+        
+        if config.model.pair_denoiser.use_esm:
+            esm_client = esm_client.to(device)
+            esm_embedding_list = []
+            for part_seq in part_seq_full_list:
+                chain_part_esm_embeddings = data_utils.get_esm_embeddings(part_seq, esm_client)
+                chain_part_esm_embeddings = chain_part_esm_embeddings.cpu().numpy()
+                chain_part_esm_embeddings = chain_part_esm_embeddings[1:-1] # remove BOS and EOS
+                esm_embedding_list.append(chain_part_esm_embeddings)
+            esm_client = esm_client.to('cpu')
+            esm_embedding_dict[part] = np.concatenate(esm_embedding_list, axis=0)
+    
+    fasta_str = ''.join([f'>{tag}\n{seq}\n' for tag, seq in seq_dict.items()])
+    
+    data = data_pipeline.process_fasta(
+        fasta_str,
+        template_fests_dict,
+        max_templates=1,
+        unpaired_msa_dict=unpaired_msa_dict,
+        paired_msa_dict=paired_msa_dict,
+    )
+    
+    data["t"] = np.array([[0.0]], dtype=np.float32)
+    
+    if config.model.pair_denoiser.use_esm:
+        data["esm_embedding"] = np.concatenate([esm_embedding_dict['rec'], esm_embedding_dict['lig']], axis=0)
+    
+    original_asym_id = data['asym_id']
+    original_residue_index = data['residue_index']
+    
+    data = data_utils.adjust_assembly_features(data, seq_dict)
+    
+    return data, ini_struct_feats_dict, original_asym_id, original_residue_index

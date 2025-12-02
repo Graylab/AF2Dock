@@ -350,6 +350,20 @@ def freeze_params(params):
     else:
         raise ValueError("Unknown params input type: {}".format(type(params)))
 
+def filter_param_dict_lora(ori_param_dict):
+    weights_to_freeze = [
+        "evoformer/preprocess_1d",
+        "evoformer/preprocess_msa",
+        "evoformer/left_single",
+        "evoformer/right_single",
+        "evoformer/~_relative_encoding",
+        "evoformer/extra_msa_activations",
+        "evoformer/extra_msa_stack",
+        "evoformer/evoformer_iteration"
+    ]
+
+    return {k: v for k, v in ori_param_dict.items() if any(s in k for s in weights_to_freeze)}
+
 def generate_template_translate_dict(model):
     
     LinearWeight = lambda l: (Param(l, param_type=ParamType.LinearWeight))

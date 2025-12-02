@@ -477,7 +477,7 @@ config = mlc.ConfigDict(
                 # "use_small_bfd": False,
                 "data_loaders": {
                     "batch_size": 1,
-                    "num_workers": 6,
+                    "num_workers": 4,
                     "pin_memory": True,
                 },
             },
@@ -983,7 +983,8 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "esm_embedding": [NUM_RES, None],
                 "t": [None, None],
                 "tr_0": [None, None],
-                "rot_0": [None, None]
+                "rot_0": [None, None],
+                "contiguous_residue_index": [NUM_RES],
             },
             "max_recycling_iters": 0,
             "use_template_torsion_angles": False,
@@ -1012,6 +1013,7 @@ AF2Dock_config_update = mlc.ConfigDict({
                 "t",
                 "tr_0",
                 "rot_0",
+                "contiguous_residue_index",
             ],
         },
         "predict": {
@@ -1130,7 +1132,7 @@ AF2Dock_config_update = mlc.ConfigDict({
             "inf": 1e5,  # 1e9,
             "eps": eps,  # 1e-6,
             "sequential_model": True,
-            "use_rigid_mask": False,
+            "use_interchain_mask": False,
             "use_esm": True,
         },
         "recycle_early_stop_tolerance": -1

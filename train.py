@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import json
+from functools import partial
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.lr_monitor import LearningRateMonitor
@@ -31,6 +32,7 @@ import wandb
 from deepspeed.utils import zero_to_fp32 
 
 from openfold.model.torchscript import script_preset_
+from openfold.model.primitives import Linear
 from openfold.np import residue_constants
 from openfold.utils.exponential_moving_average import ExponentialMovingAverage
 from openfold.utils.loss import lddt_ca
@@ -50,12 +52,12 @@ from AF2Dock.config import model_config
 from AF2Dock.model.model import AF2Dock
 from AF2Dock.data.datamodule import AF2DockDataModule
 from AF2Dock.utils.loss import AF2DockLoss
-from AF2Dock.utils import train_utils
+from AF2Dock.utils import train_utils, minilora
 
 logger = logging.getLogger(__name__)
 
 class AF2DockWrapper(pl.LightningModule):
-    def __init__(self, config, low_prec=False, deepspeed=False, finetune_lr=False):
+    def __init__(self, config, low_prec=False, deepspeed=False, finetune_lr=None):
         super(AF2DockWrapper, self).__init__()
         self.config = config
         self.low_prec = low_prec
@@ -122,6 +124,8 @@ class AF2DockWrapper(pl.LightningModule):
         batch = tensor_tree_map(lambda t: t[..., -1], batch)
 
         if self.is_multimer:
+            ori_residue_index = batch['residue_index']
+            batch['residue_index'] = batch['contiguous_residue_index']
             if self.low_prec and (not self.deepspeed):
                 with torch.amp.autocast('cuda', enabled=False):
                     batch = multi_chain_permutation_align(out=outputs,
@@ -131,6 +135,7 @@ class AF2DockWrapper(pl.LightningModule):
                 batch = multi_chain_permutation_align(out=outputs,
                                                     features=batch,
                                                     ground_truth=ground_truth)
+            batch['residue_index'] = ori_residue_index
 
         # Compute loss
         loss, loss_breakdown = self.loss(
@@ -257,7 +262,7 @@ class AF2DockWrapper(pl.LightningModule):
                 if 'initial_lr' not in group:
                     group['initial_lr'] = learning_rate
 
-        if not self.finetune_lr:
+        if self.finetune_lr is None:
             lr_scheduler = AlphaFoldLRScheduler(
                 optimizer,
                 last_epoch=self.last_lr_step
@@ -266,8 +271,8 @@ class AF2DockWrapper(pl.LightningModule):
             lr_scheduler = AlphaFoldLRScheduler(
                 optimizer,
                 last_epoch=self.last_lr_step,
-                base_lr=0.0005,
-                max_lr=0.0005,
+                base_lr=self.finetune_lr,
+                max_lr=self.finetune_lr,
                 warmup_no_steps=1,
             )
 
@@ -347,6 +352,67 @@ def main(args):
                     args.resume_from_ckpt)
             else:
                 sd = torch.load(args.resume_from_ckpt)
+            if not args.resume_from_lora_weights:
+                # Process the state dict
+                if 'module' in sd:
+                    sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
+                    import_openfold_weights_(model=model_module, state_dict=sd)
+                    ema_params = model_module.model.state_dict()
+                elif 'state_dict' in sd:
+                    import_openfold_weights_(
+                        model=model_module, state_dict=sd['state_dict'])
+                    ema_params = sd['ema']['params']
+                else:
+                    # Loading from pre-trained model
+                    sd = {'model.'+k: v for k, v in sd.items()}
+                    import_openfold_weights_(model=model_module, state_dict=sd)
+                    ema_params = model_module.model.state_dict()
+                # Initialize the EMA weights
+                with torch.no_grad():
+                    for k in ema_params.keys():
+                        model_module.ema.params[k] = ema_params[k].clone().detach()
+                logging.info("Successfully loaded model weights...")
+                del sd, ema_params
+
+        else:  # Loads a checkpoint to start from a specific time step
+            if os.path.isdir(args.resume_from_ckpt):
+                sd = get_model_state_dict_from_ds_checkpoint(args.resume_from_ckpt)
+            else:
+                sd = torch.load(args.resume_from_ckpt)
+            last_global_step = int(sd['global_step'])
+            model_module.resume_last_lr_step(last_global_step)
+            logging.info("Successfully loaded last lr step...")
+            del sd
+
+    if args.resume_from_jax_params:
+        model_module.load_from_jax(args.resume_from_jax_params)
+        logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
+
+    if args.af_params == 'freeze':
+        ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
+        train_utils.freeze_params(ori_param_dict)
+        logging.info("Train with frozen AlphaFold parameters")
+    
+    elif args.af_params == 'lora':
+        ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
+        filtered_param_dict = train_utils.filter_param_dict_lora(ori_param_dict)
+        train_utils.freeze_params(filtered_param_dict)
+        
+        lora_config = {  # specify which layers to add lora to, by default only add to linear layers
+            Linear: {
+                "weight": partial(minilora.LoRAParametrization.from_linear,
+                                  rank=args.lora_rank,
+                                  lora_alpha=args.lora_rank),
+            },
+        }
+        
+        minilora.add_lora_by_name(
+            model_module.model,
+            target_module_names=['extra_msa_stack', 'evoformer.blocks'],
+            lora_config=lora_config
+        )
+
+        if args.resume_from_ckpt and args.resume_model_weights_only and args.resume_from_lora_weights:
             # Process the state dict
             if 'module' in sd:
                 sd = {k[len('module.'):]: v for k, v in sd['module'].items()}
@@ -361,30 +427,24 @@ def main(args):
                 sd = {'model.'+k: v for k, v in sd.items()}
                 import_openfold_weights_(model=model_module, state_dict=sd)
                 ema_params = model_module.model.state_dict()
-            # Initialize the EMA weights
-            with torch.no_grad():
-                for k in ema_params.keys():
-                    model_module.ema.params[k] = ema_params[k].clone().detach()
-            logging.info("Successfully loaded model weights...")
+            del sd
+        else:
+            ema_params = model_module.model.state_dict()
 
-        else:  # Loads a checkpoint to start from a specific time step
-            if os.path.isdir(args.resume_from_ckpt):
-                sd = get_model_state_dict_from_ds_checkpoint(args.resume_from_ckpt)
-            else:
-                sd = torch.load(args.resume_from_ckpt)
-            last_global_step = int(sd['global_step'])
-            model_module.resume_last_lr_step(last_global_step)
-            logging.info("Successfully loaded last lr step...")
+        # Initialize the EMA weights
+        model_module.ema = ExponentialMovingAverage(
+            model=model_module.model, decay=model_module.ema.decay
+        )
+        with torch.no_grad():
+            for k in ema_params.keys():
+                model_module.ema.params[k] = ema_params[k].clone().detach()
+        del ema_params
 
-    if args.resume_from_jax_params:
-        model_module.load_from_jax(args.resume_from_jax_params)
-        logging.info(f"Successfully loaded JAX parameters at {args.resume_from_jax_params}...")
+        logging.info("Train with LoRA AlphaFold parameters")
     
-    if args.freeze_af_params:
-        ori_param_dict = train_utils.get_flattened_translations_dict(model_module.model)
-        train_utils.freeze_params(ori_param_dict)
-        logging.info("Train with frozen AlphaFold parameters")
- 
+    elif args.af_params == 'full':
+        logging.info("Train with full AlphaFold parameters")
+
     # TorchScript components of the model
     if(args.script_modules):
         script_preset_(model_module)
@@ -398,7 +458,7 @@ def main(args):
 
     data_module.prepare_data()
     data_module.setup()
-    
+
     callbacks = []
     if(args.checkpoint_every_val_check):
         mc = ModelCheckpoint(
@@ -522,6 +582,10 @@ if __name__ == "__main__":
         help="Path to the pinder entity seq cluster pkl file."
     )
     parser.add_argument(
+        "--three_body_interactions_pkl", type=str, default=None,
+        help="Path to the three body interactions pkl file."
+    )
+    parser.add_argument(
         "--sequential_model", type=bool_type, default=True,
         help="Whether to use the sequential model."
     )
@@ -554,12 +618,29 @@ if __name__ == "__main__":
         help="""Path to an .npz JAX parameter file with which to initialize the model"""
     )
     parser.add_argument(
-        "--freeze_af_params", type=bool_type, default=True,
-        help="""Whether to freeze AlphaFold parameters when loading JAX weights"""
+        "--resume_from_lora_weights", type=bool_type, default=False,
+        help="Whether the statedict loaded contain LoRA weights"
     )
     parser.add_argument(
-        "--finetune_lr", action="store_true", default=False,
-        help="""Whether to use finetune learning rate"""
+        "--af_params", type=str, default='freeze',
+        choices=['freeze', 'lora', 'full'],
+        help="""Whether to freeze, LoRA, or fully train AlphaFold parameters"""
+    )
+    parser.add_argument(
+        "--lora_rank", type=int, default=16,
+        help="""Rank for LoRA parameterization"""
+    )
+    parser.add_argument(
+        "--finetune_lr", type=float, default=None,
+        help="""Finetune learning rate. Default is None, meaning no finetuning."""
+    )
+    parser.add_argument(
+        "--filter_train_by_date", type=bool_type, default=True,
+        help="Whether to filter training data by date 2021-09-30"
+    )
+    parser.add_argument(
+        "--list_of_samples_to_exclude", type=str, default=None,
+        help="Path to a text file containing a list of sample IDs to exclude from training"
     )
     parser.add_argument(
         "--log_performance", type=bool_type, default=False,
