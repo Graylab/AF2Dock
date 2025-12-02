@@ -300,7 +300,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--long_sequence_inference", action="store_true", default=False,
-        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the README for details"""
+        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the openfold README for details"""
     )
     parser.add_argument(
         "--use_deepspeed_evoformer_attention", action="store_true", default=False, 
@@ -308,10 +308,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=4,
-        help="Number of workers for the dataloader.",
     )
     args = parser.parse_args()
 

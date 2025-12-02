@@ -46,8 +46,6 @@ def main(args):
             custom_config_dict = json.load(f)
         config.update_from_flattened_dict(custom_config_dict)
     
-    config.data.data_module.num_workers = args.num_workers
-    
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
     if random_seed is None:
@@ -304,7 +302,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--long_sequence_inference", action="store_true", default=False,
-        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the README for details"""
+        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the openfold README for details"""
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
@@ -312,10 +310,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use_deepspeed_evoformer_attention", action="store_true", default=False, 
         help="Whether to use the DeepSpeed evoformer attention layer. Must have deepspeed installed in the environment.",
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=4,
-        help="Number of workers for the dataloader.",
     )
     args = parser.parse_args()
 
