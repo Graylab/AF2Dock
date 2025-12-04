@@ -60,6 +60,12 @@ def main(args):
     
     AF2Dock_config.data.data_module.num_workers = args.num_workers
     
+    if args.experiment_config_json:
+        with open(args.experiment_config_json, 'r') as f:
+            custom_config_dict = json.load(f)
+        of_config.update_from_flattened_dict(custom_config_dict)
+        AF2Dock_config.update_from_flattened_dict(custom_config_dict)
+    
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
     if random_seed is None:
@@ -105,7 +111,7 @@ def main(args):
         for data_idx, batch in tqdm(enumerate(dataloader)):
             data_idx = data_idx + args.data_starting_index
             gt_features = batch.pop("gt_features")
-            data_id = dataloader.dataset.data_index.iloc[batch["batch_idx"].item()]['id']
+            data_id = dataloader.dataset.data_index.iloc[batch["batch_idx"][...,0].item()]['id']
             is_homomer = 2 in batch['sym_id']
             batch = tensor_tree_map(lambda x: x.to(args.model_device), batch)
             
@@ -245,6 +251,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_workers", type=int, default=4,
         help="Number of workers for the dataloader.",
+    )
+    parser.add_argument(
+        "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
     )
     args = parser.parse_args()
 

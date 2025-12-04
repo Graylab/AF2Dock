@@ -48,16 +48,17 @@ def main(args):
     of_config.data.common.max_recycling_iters = 0
     of_config.data.common.use_template_torsion_angles = False
     
-    if args.experiment_config_json:
-        with open(args.experiment_config_json, 'r') as f:
-            custom_config_dict = json.load(f)
-        of_config.update_from_flattened_dict(custom_config_dict)
-
     AF2Dock_config = AF2Dock_model_config(
         long_sequence_inference=args.long_sequence_inference,
         use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
         )
     AF2Dock_config.model.pair_denoiser.use_esm = False
+    
+    if args.experiment_config_json:
+        with open(args.experiment_config_json, 'r') as f:
+            custom_config_dict = json.load(f)
+        of_config.update_from_flattened_dict(custom_config_dict)
+        AF2Dock_config.update_from_flattened_dict(custom_config_dict)
     
     output_dir_base = args.output_dir
     random_seed = args.data_random_seed
@@ -300,7 +301,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--long_sequence_inference", action="store_true", default=False,
-        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the README for details"""
+        help="""enable options to reduce memory usage at the cost of speed, helps longer sequences fit into GPU memory, see the openfold README for details"""
     )
     parser.add_argument(
         "--use_deepspeed_evoformer_attention", action="store_true", default=False, 
@@ -308,10 +309,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=4,
-        help="Number of workers for the dataloader.",
     )
     args = parser.parse_args()
 

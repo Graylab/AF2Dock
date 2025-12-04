@@ -38,6 +38,9 @@ def main(args):
         long_sequence_inference=args.long_sequence_inference,
         use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
         )
+    
+    if args.no_esm:
+        config.model.pair_denoiser.use_esm = False
 
     if args.experiment_config_json:
         with open(args.experiment_config_json, 'r') as f:
@@ -124,7 +127,7 @@ def main(args):
             template_all_atom_mask = torch.cat(atom_masks, dim=-2)
             assert template_all_atom_mask.shape[-2] == batch['template_all_atom_mask'].shape[-3]
             batch['template_all_atom_mask'] = template_all_atom_mask[None, None, ...][..., None].clone().expand(
-                    *([-1] * (len(batch['template_all_atom_mask'].shape) - 1) + [batch['template_all_atom_mask'].size(dim=-1)])).to(
+                *([-1] * (len(batch['template_all_atom_mask'].shape) - 1) + [batch['template_all_atom_mask'].size(dim=-1)])).to(
                 batch['template_all_atom_mask'].dtype).to(batch['template_all_atom_mask'].device)
             
             total_steps =  args.num_steps
@@ -138,7 +141,7 @@ def main(args):
                 template_all_atom_pos = torch.cat(curr_atom_pos, dim=-3)
                 assert template_all_atom_pos.shape[-3] == batch['template_all_atom_positions'].shape[-4]
                 batch['template_all_atom_positions'] = template_all_atom_pos[None, None, ...][..., None].clone().expand(
-                        *([-1] * (len(batch['template_all_atom_positions'].shape) - 1) + [batch['template_all_atom_positions'].size(dim=-1)])).to(
+                    *([-1] * (len(batch['template_all_atom_positions'].shape) - 1) + [batch['template_all_atom_positions'].size(dim=-1)])).to(
                     batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
                 
                 out = model(batch)
@@ -245,6 +248,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use_deepspeed_evoformer_attention", action="store_true", default=False, 
         help="Whether to use the DeepSpeed evoformer attention layer. Must have deepspeed installed in the environment.",
+    )
+    parser.add_argument(
+        "--no-esm", action="store_true", default=False,
+        help="""Do not use ESM inputs. Only use with model weights trained without ESM."""
     )
     parser.add_argument(
         "--num_workers", type=int, default=4,
