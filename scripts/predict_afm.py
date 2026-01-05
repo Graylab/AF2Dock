@@ -45,8 +45,9 @@ def main(args):
     of_config.data.predict.max_extra_msa = 17
     of_config.data.predict.max_templates = 1
     of_config.data.predict.masked_msa_replace_fraction = 0.0
-    of_config.data.common.max_recycling_iters = 0
     of_config.data.common.use_template_torsion_angles = False
+
+    of_config.data.common.max_recycling_iters = args.num_max_recycle
     
     AF2Dock_config = AF2Dock_model_config(
         long_sequence_inference=args.long_sequence_inference,
@@ -101,7 +102,7 @@ def main(args):
     feat_pipeline = feature_pipeline.FeaturePipeline(of_config.data)
 
     for model_name in models_to_evaluate:
-        model = model = AlphaFoldUnmasked(of_config, unmasked=args.unmasked)
+        model = AlphaFoldUnmasked(of_config, unmasked=args.unmasked)
         model = model.eval()
         import_jax_weights_(
             model, args.jax_weights_path / f"params_{model_name}.npz", version=model_name
@@ -306,6 +307,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use_deepspeed_evoformer_attention", action="store_true", default=False, 
         help="Whether to use the DeepSpeed evoformer attention layer. Must have deepspeed installed in the environment.",
+    )
+    parser.add_argument(
+        "--num_max_recycle", type=int, default=20,
+        help="""Maximum number of recycle iterations."""
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",
