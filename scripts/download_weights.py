@@ -19,6 +19,13 @@ def add_args(parser):
         help="Path to the directory for downloading model files"
     )
     parser.add_argument(
+        '--model-name',
+        type=str,
+        default='AF2Dock_base',
+        choices=['AF2Dock_base', 'AF2Dock_wo_esm', 'AF2Dock_wo_ft'],
+        help=f"Specify the name of the model to download. Available options: AF2Dock_base, AF2Dock_wo_esm, AF2Dock_wo_ft",
+    )
+    parser.add_argument(
         '--all',
         action='store_true',
         help="Download all model weights including ablation variants",
@@ -35,7 +42,7 @@ def main(args):
     if args.all:
         models_to_download = ['AF2Dock_base.pt', 'AF2Dock_wo_esm.pt', 'AF2Dock_wo_ft.pt']
     else:
-        models_to_download = ['AF2Dock_base.pt']
+        models_to_download = [f'{args.model_name}.pt']
     record_url = 'https://zenodo.org/api/records/17782959'
     
     r = requests.get(record_url)
