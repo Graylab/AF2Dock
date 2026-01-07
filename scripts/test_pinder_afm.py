@@ -40,15 +40,27 @@ def main(args):
         name="model_1_multimer_v3",
         long_sequence_inference=args.long_sequence_inference,
         use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
+        use_cuequivariance_attention=args.use_cuequivariance_attention,
+        use_cuequivariance_multiplicative_update=args.use_cuequivariance_multiplicative_update,
+        precision=args.precision,
+        trt_mode=args.trt_mode,
+        trt_engine_dir=args.trt_engine_dir,
+        trt_num_profiles=args.trt_num_profiles,
+        trt_optimization_level=args.trt_optimization_level,
+        trt_max_sequence_len=args.trt_max_sequence_len,
         )
-    of_config.data.predict.max_msa_clusters = 17
-    of_config.data.predict.max_extra_msa = 17
-    of_config.data.predict.max_templates = 1
-    of_config.data.predict.masked_msa_replace_fraction = 0.0
     
     AF2Dock_config = AF2Dock_model_config(
         long_sequence_inference=args.long_sequence_inference,
         use_deepspeed_evoformer_attention=args.use_deepspeed_evoformer_attention,
+        use_cuequivariance_attention=args.use_cuequivariance_attention,
+        use_cuequivariance_multiplicative_update=args.use_cuequivariance_multiplicative_update,
+        precision=args.precision,
+        trt_mode=args.trt_mode,
+        trt_engine_dir=args.trt_engine_dir,
+        trt_num_profiles=args.trt_num_profiles,
+        trt_optimization_level=args.trt_optimization_level,
+        trt_max_sequence_len=args.trt_max_sequence_len,
         )
 
     if args.pinder_test_type == 'holo':
@@ -59,6 +71,7 @@ def main(args):
         AF2Dock_config.data.test.pinder_cate_prob = {"holo": 0.0, "apo": 0.0, "pred": 1.0,}
     
     AF2Dock_config.data.data_module.num_workers = args.num_workers
+    AF2Dock_config.data.common.max_recycling_iters = args.num_max_recycle
     
     if args.experiment_config_json:
         with open(args.experiment_config_json, 'r') as f:
@@ -99,7 +112,7 @@ def main(args):
     ca_idx = residue_constants.atom_order["CA"]
     
     for model_name in models_to_evaluate:
-        model = model = AlphaFoldUnmasked(of_config, unmasked=args.unmasked)
+        model = AlphaFoldUnmasked(of_config, unmasked=args.unmasked)
         model = model.eval()
         import_jax_weights_(
             model, args.jax_weights_path / f"params_{model_name}.npz", version=model_name
@@ -157,8 +170,16 @@ def main(args):
                         *([-1] * (len(batch['template_all_atom_positions'].shape) - 1) + [batch['template_all_atom_positions'].size(dim=-1)])).to(
                         batch['template_all_atom_positions'].dtype).to(batch['template_all_atom_positions'].device)
                     
+                    if args.use_cuequivariance_attention:
+                        # cuequivariance attention does not support batch dimension due to https://github.com/aqlaboratory/openfold/blob/be2ec1841f16c966c65ae0e7599ebbadc725757d/openfold/model/msa.py#L285
+                        batch = tensor_tree_map(lambda x: x.squeeze(0), batch)
+                    
                     out = model(batch)
                     out = tensor_tree_map(lambda x: x.cpu(), out)
+                    
+                    if args.use_cuequivariance_attention:
+                        out = tensor_tree_map(lambda x: x.unsqueeze(0), out)
+                        batch = tensor_tree_map(lambda x: x.unsqueeze(0), batch)
                     
                     if not args.interpolate or not args.unmasked:
                         break
@@ -249,8 +270,44 @@ if __name__ == "__main__":
         help="Whether to use the DeepSpeed evoformer attention layer. Must have deepspeed installed in the environment.",
     )
     parser.add_argument(
+        "--use_cuequivariance_attention", action="store_true", default=False,
+        help="""Use cuEquivariance kernels for attention computation."""
+    )
+    parser.add_argument(
+        "--use_cuequivariance_multiplicative_update", action="store_true", default=False,
+        help="""Use cuEquivariance kernels for triangular multiplicative update computation."""
+    )
+    parser.add_argument(
+        "--trt_mode", type=str, default=None,
+        help="build = Build engine; run = Run engine; None = Disable TRT"
+    )
+    parser.add_argument(
+        "--trt_engine_dir", type=str, default=None,
+        help="Absolute path to directory containing .onnx and .plan files"
+    )
+    parser.add_argument(
+        "--precision", type=str, default="tf32",
+        help="tf32 | fp32 | fp16 | bf16"
+    )
+    parser.add_argument(
+        "--trt_max_sequence_len", type=int, default=640,
+        help="Maximum sequence length supported by TRT, default=640"
+    )
+    parser.add_argument(
+        "--trt_num_profiles", type=int, default=1,
+        help="1 = Single profile[50-800]; 2 = [50-200][200-800]; 4 = [50-100]; [100-200]; [200-400]; [400-800]"
+    )
+    parser.add_argument(
+        "--trt_optimization_level", type=int, default=3,
+        help="Allowed values: 0 to 5"
+    )
+    parser.add_argument(
         "--num_workers", type=int, default=4,
         help="Number of workers for the dataloader.",
+    )
+    parser.add_argument(
+        "--num_max_recycle", type=int, default=20,
+        help="""Maximum number of recycle iterations."""
     )
     parser.add_argument(
         "--experiment_config_json", default="", help="Path to a json file with custom config values to overwrite config setting",

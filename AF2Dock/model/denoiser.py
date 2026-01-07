@@ -129,6 +129,7 @@ class PairDenoiserStackBlock(nn.Module):
                           inter_chain_mask: torch.Tensor,
                           _attn_chunk_size: Optional[int],
                           use_deepspeed_evo_attention: bool,
+                          use_cuequivariance_attention: bool,
                           use_lma: bool,
                           inplace_safe: bool):
         single = add(single,
@@ -139,6 +140,7 @@ class PairDenoiserStackBlock(nn.Module):
                              mask=padding_mask,
                              chunk_size=_attn_chunk_size,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                             use_cuequivariance_attention=use_cuequivariance_attention,
                              use_lma=use_lma,
                              inplace_safe=inplace_safe,
                          )
@@ -154,6 +156,7 @@ class PairDenoiserStackBlock(nn.Module):
                              mask=padding_mask,
                              chunk_size=_attn_chunk_size,
                              use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                             use_cuequivariance_attention=use_cuequivariance_attention,
                              use_lma=use_lma,
                              inplace_safe=inplace_safe,
                          )
@@ -167,12 +170,14 @@ class PairDenoiserStackBlock(nn.Module):
                        single: torch.Tensor,
                        padding_mask: torch.Tensor,
                        inter_chain_mask: torch.Tensor,
+                       use_cuequivariance_multiplicative_update: bool,
                        inplace_safe: bool):
         tmu_update = self.tri_mul_out(
             single,
             mask=padding_mask,
             inplace_safe=inplace_safe,
             _add_with_inplace=False,
+            use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update
         )
         tmu_update = tmu_update * inter_chain_mask[..., None]
         if not inplace_safe:
@@ -187,6 +192,7 @@ class PairDenoiserStackBlock(nn.Module):
             mask=padding_mask,
             inplace_safe=inplace_safe,
             _add_with_inplace=False,
+            use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update
         )
         tmu_update = tmu_update * inter_chain_mask[..., None]
         if not inplace_safe:
@@ -205,6 +211,8 @@ class PairDenoiserStackBlock(nn.Module):
                 inter_chain_mask: torch.Tensor,
                 chunk_size: Optional[int] = None,
                 use_deepspeed_evo_attention: bool = False,
+                use_cuequivariance_attention: bool = False,
+                use_cuequivariance_multiplicative_update: bool = False,
                 use_lma: bool = False,
                 inplace_safe: bool = False,
                 _attn_chunk_size: Optional[int] = None,
@@ -217,12 +225,14 @@ class PairDenoiserStackBlock(nn.Module):
         single = self.tri_att_start_end(single=self.tri_mul_out_in(single=single,
                                                                    padding_mask=padding_mask,
                                                                    inter_chain_mask=inter_chain_mask,
+                                                                   use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update,
                                                                    inplace_safe=inplace_safe),
                                         cond=cond,
                                         padding_mask=padding_mask,
                                         inter_chain_mask=inter_chain_mask,
                                         _attn_chunk_size=_attn_chunk_size,
                                         use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                                        use_cuequivariance_attention=use_cuequivariance_attention,
                                         use_lma=use_lma,
                                         inplace_safe=inplace_safe)
 
@@ -311,6 +321,8 @@ class PairDenoiserStack(nn.Module):
         inter_chain_mask: torch.tensor,
         chunk_size: int,
         use_deepspeed_evo_attention: bool = False,
+        use_cuequivariance_attention: bool = False,
+        use_cuequivariance_multiplicative_update: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
     ):
@@ -332,6 +344,8 @@ class PairDenoiserStack(nn.Module):
                 inter_chain_mask=inter_chain_mask,
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
+                use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
             )
@@ -469,6 +483,8 @@ class PairDenoiser(nn.Module):
         inter_chain_mask,
         _mask_trans=True,
         use_deepspeed_evo_attention=False,
+        use_cuequivariance_attention: bool = False,
+        use_cuequivariance_multiplicative_update: bool = False,
         use_lma=False,
         inplace_safe=False
     ):
@@ -534,6 +550,8 @@ class PairDenoiser(nn.Module):
                 padding_mask.unsqueeze(-3).to(dtype=z.dtype), 
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
+                use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
                 _mask_trans=_mask_trans,
@@ -555,6 +573,8 @@ class PairDenoiser(nn.Module):
                 padding_mask.unsqueeze(-3).to(dtype=z.dtype),
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
+                use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
                 _mask_trans=_mask_trans,
@@ -570,6 +590,8 @@ class PairDenoiser(nn.Module):
                 inter_chain_mask=inter_chain_mask.unsqueeze(-3).to(dtype=z.dtype),
                 chunk_size=chunk_size,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
+                use_cuequivariance_multiplicative_update=use_cuequivariance_multiplicative_update,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
             )

@@ -62,6 +62,7 @@ class TriangleAttentionNoLayerNorm(nn.Module):
         chunk_size: int,
         use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
+        use_cuequivariance_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
     ) -> torch.Tensor:
@@ -77,6 +78,7 @@ class TriangleAttentionNoLayerNorm(nn.Module):
                 self.mha, 
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
                 use_lma=use_lma
             ),
             mha_inputs,
@@ -91,6 +93,7 @@ class TriangleAttentionNoLayerNorm(nn.Module):
         chunk_size: Optional[int] = None,
         use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
+        use_cuequivariance_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
     ) -> torch.Tensor:
@@ -132,6 +135,7 @@ class TriangleAttentionNoLayerNorm(nn.Module):
                 chunk_size, 
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
             )
@@ -142,6 +146,7 @@ class TriangleAttentionNoLayerNorm(nn.Module):
                 biases=biases, 
                 use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+                use_cuequivariance_attention=use_cuequivariance_attention,
                 use_lma=use_lma
             )
 
@@ -178,6 +183,7 @@ class ConditionedTriangleAttention(nn.Module):
         chunk_size: Optional[int] = None,
         use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
+        use_cuequivariance_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
     ) -> torch.Tensor:
@@ -188,6 +194,7 @@ class ConditionedTriangleAttention(nn.Module):
             chunk_size=chunk_size,
             use_memory_efficient_kernel=use_memory_efficient_kernel,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
+            use_cuequivariance_attention=use_cuequivariance_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe
         )
