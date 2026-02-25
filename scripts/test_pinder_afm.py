@@ -193,7 +193,7 @@ def main(args):
                     inference_utils.write_output(batch, out, out_dir_data, f'{data_id}_{model_name}', out_pred=True, out_conf=True, out_template=True)
                     break
 
-            batch = tensor_tree_map(lambda x: x.cpu(), batch)
+                batch = tensor_tree_map(lambda x: x.cpu(), batch)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

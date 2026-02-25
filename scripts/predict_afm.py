@@ -224,7 +224,7 @@ def main(args):
                                                   original_residue_index=original_residue_index, original_asym_id=original_asym_id)
                     break
 
-            batch = tensor_tree_map(lambda x: x.cpu(), batch)
+                batch = tensor_tree_map(lambda x: x.cpu(), batch)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
