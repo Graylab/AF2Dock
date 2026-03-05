@@ -213,7 +213,7 @@ def main(args):
             metrics['iptm'].append(out['iptm_score'].item())
             pd.DataFrame(metrics).sort_values('iptm', ascending=False).to_csv(metrics_file, index=False)
 
-        batch = tensor_tree_map(lambda x: x.cpu(), batch)
+            batch = tensor_tree_map(lambda x: x.cpu(), batch)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
